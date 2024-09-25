@@ -10,18 +10,27 @@ import (
 	"fmt"
 	"net/http"
 
+	"kexuedns/dns"
 	"kexuedns/log"
 	"kexuedns/ui"
 )
 
 func main() {
 	logLevel := flag.String("log-level", "info", "log level: debug/info/warn/error")
+	addr := flag.String("addr", "127.0.0.1", "DNS listening address")
+	port := flag.Int("port", 5553, "DNS listening UDP port")
 	httpAddr := flag.String("http-addr", "127.0.0.1", "HTTP webui address")
 	httpPort := flag.Int("http-port", 8053, "HTTP webui port")
 	flag.Parse()
 
 	log.SetLevelString(*logLevel)
 	log.Infof("set log level to [%s]", *logLevel)
+
+	go func() {
+		listen := fmt.Sprintf("%s:%d", *addr, *port)
+		log.Infof("DNS service (UDP): %s", listen)
+		panic(dns.ListenAndServe(listen))
+	}()
 
 	http.Handle("/static/", http.StripPrefix("/static/", ui.ServeStatic()))
 	_ = ui.GetTemplate("xxx")
