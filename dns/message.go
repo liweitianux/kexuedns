@@ -168,3 +168,19 @@ func (m *QueryMsg) SetEdnsSubnet(ip net.IP, prefixLen int) error {
 
 	return nil
 }
+
+func (m *QueryMsg) Build() ([]byte, error) {
+	msg := dnsmessage.Message{
+		Header:    m.Header,
+		Questions: []dnsmessage.Question{m.Question},
+	}
+	if m.OPT.Header != nil {
+		r := dnsmessage.Resource{
+			Header: *m.OPT.Header,
+			Body:   &dnsmessage.OPTResource{Options: m.OPT.Options},
+		}
+		msg.Additionals = []dnsmessage.Resource{r}
+	}
+
+	return msg.Pack()
+}
