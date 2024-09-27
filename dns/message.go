@@ -8,7 +8,7 @@ package dns
 import (
 	"encoding/binary"
 	"errors"
-	"net"
+	"net/netip"
 
 	"golang.org/x/net/dns/dnsmessage"
 
@@ -101,7 +101,12 @@ func ParseQuery(msg []byte) (*QueryMsg, error) {
 	return qmsg, nil
 }
 
-func (m *QueryMsg) SetEdnsSubnet(ip net.IP, prefixLen int) error {
+func (m *QueryMsg) SetEdnsSubnet(ip netip.Addr, prefixLen int) error {
+	if !ip.IsValid() || ip.IsUnspecified() {
+		log.Errorf("invalid/unspecified IP address: %v", ip.String())
+		return errors.New("invalid/unspecified IP address")
+	}
+
 	rh := dnsmessage.ResourceHeader{}
 	err := rh.SetEDNS0(maxPayloadSize, dnsmessage.RCodeSuccess, false)
 	if err != nil {
@@ -116,25 +121,22 @@ func (m *QueryMsg) SetEdnsSubnet(ip net.IP, prefixLen int) error {
 	// Client Subnet (RFC 7871)
 	family := uint16(0)
 	address := []byte{}
-	if ip.To4() != nil {
+	if ip.Is4() {
 		family = uint16(1)
 		if prefixLen <= 0 || prefixLen > 32 {
 			prefixLen = ipv4PrefixLength
 		}
-		mask := net.CIDRMask(prefixLen, 32)
-		ip4 := ip.Mask(mask).To4() // to 4-byte representation
-		address = []byte(ip4)[:((prefixLen + 7) / 8)]
-	} else if ip.To16() != nil {
+		prefix, _ := ip.Prefix(prefixLen)
+		a4 := prefix.Addr().As4()
+		address = a4[:((prefixLen + 7) / 8)]
+	} else {
 		family = uint16(2)
 		if prefixLen <= 0 || prefixLen > 128 {
 			prefixLen = ipv6PrefixLength
 		}
-		mask := net.CIDRMask(prefixLen, 128)
-		ip16 := ip.Mask(mask).To16()
-		address = []byte(ip16)[:((prefixLen + 7) / 8)]
-	} else {
-		log.Errorf("invalid IP address: %v", ip)
-		return errors.New("invalid IP address")
+		prefix, _ := ip.Prefix(prefixLen)
+		a16 := prefix.Addr().As16()
+		address = a16[:((prefixLen + 7) / 8)]
 	}
 
 	// Option data format:
