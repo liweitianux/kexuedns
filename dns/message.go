@@ -37,7 +37,7 @@ type QueryMsg struct {
 	}
 }
 
-func ParseQuery(msg []byte) (*QueryMsg, error) {
+func NewQueryMsg(msg []byte) (*QueryMsg, error) {
 	qmsg := &QueryMsg{}
 
 	var err error
@@ -99,6 +99,17 @@ func ParseQuery(msg []byte) (*QueryMsg, error) {
 	}
 
 	return qmsg, nil
+}
+
+func (m QueryMsg) QType() dnsmessage.Type {
+	return m.Question.Type
+}
+
+// Get the query name.
+// Note: characters inside the labels are not escaped in any way.
+// e.g., www.Example.COM.
+func (m QueryMsg) QName() string {
+	return m.Question.Name.String()
 }
 
 func (m *QueryMsg) SetEdnsSubnet(ip netip.Addr, prefixLen int) error {
