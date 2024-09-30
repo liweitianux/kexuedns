@@ -19,14 +19,14 @@ type myIP struct {
 	lock sync.RWMutex
 }
 
-func (x myIP) GetV4() (netip.Addr, bool) {
+func (x *myIP) GetV4() (netip.Addr, bool) {
 	x.lock.RLock()
 	defer x.lock.RUnlock()
 
 	return x.ipv4, x.ipv4.IsValid()
 }
 
-func (x myIP) GetV6() (netip.Addr, bool) {
+func (x *myIP) GetV6() (netip.Addr, bool) {
 	x.lock.RLock()
 	defer x.lock.RUnlock()
 
