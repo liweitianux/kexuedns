@@ -101,14 +101,14 @@ func NewQueryMsg(msg []byte) (*QueryMsg, error) {
 	return qmsg, nil
 }
 
-func (m QueryMsg) QType() dnsmessage.Type {
+func (m *QueryMsg) QType() dnsmessage.Type {
 	return m.Question.Type
 }
 
 // Get the query name.
 // Note: characters inside the labels are not escaped in any way.
 // e.g., www.Example.COM.
-func (m QueryMsg) QName() string {
+func (m *QueryMsg) QName() string {
 	return m.Question.Name.String()
 }
 
