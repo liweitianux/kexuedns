@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 
+	"kexuedns/config"
 	"kexuedns/dns"
 	"kexuedns/log"
 	"kexuedns/ui"
@@ -35,6 +36,9 @@ func main() {
 	log.SetLevelString(*logLevel)
 	log.Infof("set log level to [%s]", *logLevel)
 
+	if err := config.Initialize(); err != nil {
+		panic(err)
+	}
 	go func() {
 		listen := fmt.Sprintf("%s:%d", *addr, *port)
 		log.Infof("DNS service (UDP): %s", listen)
