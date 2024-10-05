@@ -30,11 +30,6 @@ const (
 	keepaliveCount    = 3
 )
 
-var (
-	ErrChannelFull     = errors.New("channel full")
-	ErrWriteIncomplete = errors.New("write incomplete")
-)
-
 // NOTE: Only support DoT (DNS-over-TLS) protocol for security and simplicity.
 type Resolver struct {
 	name      string // name to identify in log messages
@@ -90,7 +85,7 @@ Lretry:
 	n, err := r.client.Write(buf)
 	if err != nil || n != 2+l {
 		if err == nil {
-			err = ErrWriteIncomplete
+			err = errors.New("write incomplete")
 		}
 		log.Errorf("[%s] failed to send query: %v", r.name, err)
 		r.disconnect()
