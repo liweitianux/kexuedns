@@ -11,10 +11,6 @@ import (
 	"kexuedns/log"
 )
 
-const (
-	maxQuerySize = 1024 // bytes
-)
-
 func ListenAndServe(address string) error {
 	pc, err := net.ListenPacket("udp", address)
 	if err != nil {

@@ -17,6 +17,8 @@ import (
 )
 
 const (
+	maxQuerySize = 1024 // bytes
+
 	queryTimeout   = 15 * time.Second
 	sessionTimeout = 30 * time.Second
 
@@ -50,7 +52,41 @@ func (f *Forwarder) AddResolver(r *Resolver) {
 	go r.Receive(f.responses)
 }
 
-func (f *Forwarder) Query(client net.Addr, msg RawMsg) (RawMsg, error) {
+func (f *Forwarder) ListenAndServe(address string) error {
+	pc, err := net.ListenPacket("udp", address)
+	if err != nil {
+		log.Errorf("failed to listen UDP at [%s]: %v", address, err)
+		return err
+	}
+	defer pc.Close()
+
+	go f.receive()
+	go f.clean()
+
+	for {
+		buf := make([]byte, maxQuerySize)
+		n, addr, err := pc.ReadFrom(buf)
+		if err != nil {
+			log.Warnf("failed to read packet: %v", err)
+			continue
+		}
+
+		go f.serve(pc, addr, buf[:n])
+	}
+}
+
+func (f *Forwarder) serve(pc net.PacketConn, addr net.Addr, buf []byte) {
+	resp, err := f.query(addr, buf)
+	if err != nil {
+		return
+	}
+	_, err = pc.WriteTo(resp, addr)
+	if err != nil {
+		log.Warnf("failed to write packet: %v", err)
+	}
+}
+
+func (f *Forwarder) query(client net.Addr, msg RawMsg) (RawMsg, error) {
 	query, err := NewQueryMsg(msg)
 	if err != nil {
 		log.Errorf("failed to parse query: %v", err)
