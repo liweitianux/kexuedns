@@ -31,6 +31,28 @@ const (
 
 type RawMsg []byte
 
+// Parse the raw message (should be a response) and compose the session key
+// to locate the session for replying.
+func (m RawMsg) SessionKey() (string, error) {
+	// Only need to parse the header and first question.
+	var p dnsmessage.Parser
+	header, err := p.Start(m)
+	if err != nil {
+		log.Errorf("failed to parse message: %v", err)
+		return "", err
+	}
+	// Parse the question section and get the first one.
+	question, err := p.Question()
+	if err != nil {
+		log.Errorf("failed to parse question: %v", err)
+		return "", err
+	}
+
+	key := fmt.Sprintf("%d:%s:%s", header.ID, question.Type,
+		strings.ToLower(question.Name.String()))
+	return key, nil
+}
+
 type QueryMsg struct {
 	Header   dnsmessage.Header
 	Question dnsmessage.Question

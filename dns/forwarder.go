@@ -17,7 +17,10 @@ import (
 )
 
 const (
-	queryTimeout = 15 * time.Second
+	queryTimeout   = 15 * time.Second
+	sessionTimeout = 30 * time.Second
+
+	cleanInternval = 5 * time.Second
 )
 
 // TODO: router
@@ -31,6 +34,7 @@ type Forwarder struct {
 type Session struct {
 	client   net.Addr
 	response chan RawMsg
+	expireAt time.Time
 }
 
 func NewForwarder() *Forwarder {
@@ -82,6 +86,7 @@ func (f *Forwarder) Query(client net.Addr, msg RawMsg) (RawMsg, error) {
 	session := &Session{
 		client:   client,
 		response: make(chan RawMsg, 1),
+		expireAt: time.Now().Add(sessionTimeout),
 	}
 	f.sessions[key] = session
 	log.Debugf("added session with key: %s", key)
@@ -96,4 +101,36 @@ func (f *Forwarder) Query(client net.Addr, msg RawMsg) (RawMsg, error) {
 
 	log.Warnf("session [%s] timed out", key)
 	return nil, errors.New("query timed out")
+}
+
+func (f *Forwarder) receive() {
+	for {
+		resp := <-f.responses
+		key, err := resp.SessionKey()
+		if err != nil {
+			continue
+		}
+		session, exists := f.sessions[key]
+		if !exists {
+			log.Warnf("session [%s] not found", key)
+			continue
+		}
+		session.response <- resp
+		delete(f.sessions, key)
+	}
+}
+
+func (f *Forwarder) clean() {
+	ticker := time.NewTicker(cleanInternval)
+	for {
+		<-ticker.C
+		now := time.Now()
+		// TODO: rwlock
+		for k, v := range f.sessions {
+			if now.After(v.expireAt) {
+				log.Debugf("clean expired session [%s]", k)
+				delete(f.sessions, k)
+			}
+		}
+	}
 }
