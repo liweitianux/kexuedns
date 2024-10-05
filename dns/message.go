@@ -8,7 +8,9 @@ package dns
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"net/netip"
+	"strings"
 
 	"golang.org/x/net/dns/dnsmessage"
 
@@ -112,6 +114,11 @@ func (m *QueryMsg) QType() dnsmessage.Type {
 // e.g., www.Example.COM.
 func (m *QueryMsg) QName() string {
 	return m.Question.Name.String()
+}
+
+// Compose the session key.
+func (m *QueryMsg) SessionKey() string {
+	return fmt.Sprintf("%d:%s:%s", m.Header.ID, m.QType(), strings.ToLower(m.QName()))
 }
 
 func (m *QueryMsg) SetEdnsSubnet(ip netip.Addr, prefixLen int) error {

@@ -7,9 +7,7 @@ package dns
 
 import (
 	"errors"
-	"fmt"
 	"net"
-	"strings"
 	"time"
 
 	"golang.org/x/net/dns/dnsmessage"
@@ -80,8 +78,7 @@ func (f *Forwarder) Query(client net.Addr, msg RawMsg) (RawMsg, error) {
 		return nil, err
 	}
 
-	key := fmt.Sprintf("%d:%s:%s", query.Header.ID,
-		query.QType(), strings.ToLower(query.QName()))
+	key := query.SessionKey()
 	session := &Session{
 		client:   client,
 		response: make(chan RawMsg, 1),
