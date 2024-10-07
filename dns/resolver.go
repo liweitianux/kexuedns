@@ -66,6 +66,10 @@ func NewResolver(ip string, port int, hostname string) (*Resolver, error) {
 		hostname:  hostname,
 		responses: make(chan RawMsg, channelSize),
 	}
+	// Perform the connection to catch the possible errors early.
+	if err := r.connect(); err != nil {
+		return nil, err
+	}
 	return r, nil
 }
 
