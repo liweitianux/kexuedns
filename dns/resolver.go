@@ -12,6 +12,7 @@ import (
 	"io"
 	"net"
 	"net/netip"
+	"syscall"
 	"time"
 
 	"kexuedns/config"
@@ -87,8 +88,11 @@ Lretry:
 	if err != nil || n != 2+l {
 		if err == nil {
 			err = errors.New("write incomplete")
+		} else if errors.Is(err, syscall.EPIPE) {
+			log.Debugf("[%s] connection already closed", r.name)
+		} else {
+			log.Errorf("[%s] failed to send query: %v", r.name, err)
 		}
-		log.Errorf("[%s] failed to send query: %v", r.name, err)
 		r.disconnect()
 
 		if !retrying {
