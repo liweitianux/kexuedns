@@ -78,10 +78,8 @@ func (r *Resolver) Query(msg RawMsg) error {
 
 	retrying := false
 Lretry:
-	if r.client == nil {
-		if err := r.connect(); err != nil {
-			return err
-		}
+	if err := r.connect(); err != nil {
+		return err
 	}
 	r.client.SetWriteDeadline(time.Now().Add(writeTimeout))
 	n, err := r.client.Write(buf)
@@ -143,7 +141,7 @@ func (r *Resolver) disconnect() {
 // Connect to the resolver and perform TLS handshake.
 func (r *Resolver) connect() error {
 	if r.client != nil {
-		panic("already connected")
+		return nil
 	}
 
 	raddr := net.TCPAddr{
