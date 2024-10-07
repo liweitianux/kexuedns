@@ -202,7 +202,12 @@ func (r *Resolver) read() {
 		lbuf := make([]byte, 2)
 		_, err := io.ReadFull(r.client, lbuf)
 		if err != nil {
-			log.Errorf("[%s] failed to read response length: %v", r.name, err)
+			if errors.Is(err, io.EOF) {
+				log.Debugf("[%s] remote closed socket", r.name)
+			} else {
+				log.Errorf("[%s] failed to read response length: %v",
+					r.name, err)
+			}
 			break
 		}
 
