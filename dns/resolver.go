@@ -228,4 +228,6 @@ func (r *Resolver) read() {
 
 	r.reading = false
 	log.Infof("[%s] stopped reading", r.name)
+
+	r.disconnect()
 }
