@@ -38,6 +38,7 @@ type Resolver struct {
 	hostname  string // name to verify the TLS certificate
 	client    *tls.Conn
 	responses chan RawMsg
+	reading   bool
 }
 
 func NewResolver(ip string, port int, hostname string) (*Resolver, error) {
@@ -189,7 +190,11 @@ func (r *Resolver) read() {
 	if r.client == nil {
 		panic("not connected yet")
 	}
+	if r.reading {
+		return
+	}
 
+	r.reading = true
 	log.Infof("[%s] started reading", r.name)
 
 	for {
@@ -214,5 +219,6 @@ func (r *Resolver) read() {
 		r.responses <- RawMsg(mbuf)
 	}
 
+	r.reading = false
 	log.Infof("[%s] stopped reading", r.name)
 }
