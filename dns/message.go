@@ -29,6 +29,17 @@ const (
 	ipv6PrefixLength = 56
 )
 
+// Session info to track and distinguish one specific query and response.
+type QuerySession struct {
+	ID   uint16
+	Type dnsmessage.Type
+	Name string // lower-cased
+}
+
+func (s *QuerySession) String() string {
+	return fmt.Sprintf("%d:%s:%s", s.ID, s.Type, s.Name)
+}
+
 type RawMsg []byte
 
 // Parse the raw message (should be a response) and compose the session key
@@ -48,9 +59,12 @@ func (m RawMsg) SessionKey() (string, error) {
 		return "", err
 	}
 
-	key := fmt.Sprintf("%d:%s:%s", header.ID, question.Type,
-		strings.ToLower(question.Name.String()))
-	return key, nil
+	s := &QuerySession{
+		ID:   header.ID,
+		Type: question.Type,
+		Name: strings.ToLower(question.Name.String()),
+	}
+	return s.String(), nil
 }
 
 type QueryMsg struct {
@@ -140,7 +154,12 @@ func (m *QueryMsg) QName() string {
 
 // Compose the session key.
 func (m *QueryMsg) SessionKey() string {
-	return fmt.Sprintf("%d:%s:%s", m.Header.ID, m.QType(), strings.ToLower(m.QName()))
+	s := &QuerySession{
+		ID:   m.Header.ID,
+		Type: m.QType(),
+		Name: strings.ToLower(m.QName()),
+	}
+	return s.String()
 }
 
 func (m *QueryMsg) SetEdnsSubnet(ip netip.Addr, prefixLen int) error {
