@@ -93,14 +93,15 @@ func (f *Forwarder) query(client net.Addr, msg RawMsg) (RawMsg, error) {
 		return nil, err
 	}
 
+	myIP := config.GetMyIP()
 	if query.QType() == dnsmessage.TypeAAAA {
-		addr, ok := config.MyIP.GetV6()
+		addr, ok := myIP.GetV6()
 		if ok {
 			query.SetEdnsSubnet(addr, 0)
 		}
 	} else {
 		// Default to IPv4
-		addr, ok := config.MyIP.GetV4()
+		addr, ok := myIP.GetV4()
 		if ok {
 			query.SetEdnsSubnet(addr, 0)
 		}
