@@ -13,27 +13,27 @@ import (
 
 // My public IP address to be used in EDNS client subnet for better geolocation
 // resolution, which is almost necessary for CDN sites.
-type myIP struct {
+type MyIP struct {
 	ipv4 netip.Addr
 	ipv6 netip.Addr
 	lock sync.RWMutex
 }
 
-func (x *myIP) GetV4() (netip.Addr, bool) {
+func (x *MyIP) GetV4() (netip.Addr, bool) {
 	x.lock.RLock()
 	defer x.lock.RUnlock()
 
 	return x.ipv4, x.ipv4.IsValid()
 }
 
-func (x *myIP) GetV6() (netip.Addr, bool) {
+func (x *MyIP) GetV6() (netip.Addr, bool) {
 	x.lock.RLock()
 	defer x.lock.RUnlock()
 
 	return x.ipv6, x.ipv6.IsValid()
 }
 
-func (x *myIP) SetV4(ip string) error {
+func (x *MyIP) SetV4(ip string) error {
 	addr, err := netip.ParseAddr(ip)
 	if err != nil {
 		return fmt.Errorf("not IP address [%s]: %v", ip, err)
@@ -53,7 +53,7 @@ func (x *myIP) SetV4(ip string) error {
 	return nil
 }
 
-func (x *myIP) SetV6(ip string) error {
+func (x *MyIP) SetV6(ip string) error {
 	addr, err := netip.ParseAddr(ip)
 	if err != nil {
 		return fmt.Errorf("not IP address [%s]: %v", ip, err)
@@ -73,6 +73,13 @@ func (x *myIP) SetV6(ip string) error {
 	return nil
 }
 
-var MyIP = myIP{
-	lock: sync.RWMutex{},
+var myIP *MyIP
+
+func GetMyIP() *MyIP {
+	if myIP == nil {
+		myIP = &MyIP{
+			lock: sync.RWMutex{},
+		}
+	}
+	return myIP
 }
