@@ -25,6 +25,10 @@ const (
 	cleanInternval = 5 * time.Second
 )
 
+var (
+	errQueryTimeout     = errors.New("query timed out")
+)
+
 // TODO: router
 // TODO: cache
 type Forwarder struct {
@@ -140,7 +144,7 @@ func (f *Forwarder) query(client net.Addr, msg RawMsg) (RawMsg, error) {
 	}
 
 	log.Warnf("session [%s] timed out", key)
-	return nil, errors.New("query timed out")
+	return nil, errQueryTimeout
 }
 
 func (f *Forwarder) receive() {
