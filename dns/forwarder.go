@@ -78,7 +78,10 @@ func (f *Forwarder) ListenAndServe(address string) error {
 func (f *Forwarder) serve(pc net.PacketConn, addr net.Addr, buf []byte) {
 	resp, err := f.query(addr, buf)
 	if err != nil {
-		return
+		// Reply with ServFail.
+		resp = buf
+		resp[2] |= 0x80 // Set QR bit
+		resp[3] |= 0x02 // Set RCode to ServFail
 	}
 	_, err = pc.WriteTo(resp, addr)
 	if err != nil {
