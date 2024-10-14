@@ -8,8 +8,8 @@ package dns
 import (
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"net/netip"
+	"strconv"
 	"strings"
 
 	"golang.org/x/net/dns/dnsmessage"
@@ -33,11 +33,16 @@ const (
 type QuerySession struct {
 	ID   uint16
 	Type dnsmessage.Type
-	Name string // lower-cased
+	Name string
 }
 
 func (s *QuerySession) String() string {
-	return fmt.Sprintf("%d:%s:%s", s.ID, s.Type, s.Name)
+	fields := []string{
+		strconv.Itoa(int(s.ID)),
+		s.Type.String(),
+		strings.ToLower(s.Name),
+	}
+	return strings.Join(fields, ":")
 }
 
 type RawMsg []byte
@@ -62,7 +67,7 @@ func (m RawMsg) SessionKey() (string, error) {
 	s := &QuerySession{
 		ID:   header.ID,
 		Type: question.Type,
-		Name: strings.ToLower(question.Name.String()),
+		Name: question.Name.String(),
 	}
 	return s.String(), nil
 }
@@ -157,7 +162,7 @@ func (m *QueryMsg) SessionKey() string {
 	s := &QuerySession{
 		ID:   m.Header.ID,
 		Type: m.QType(),
-		Name: strings.ToLower(m.QName()),
+		Name: m.QName(),
 	}
 	return s.String()
 }
