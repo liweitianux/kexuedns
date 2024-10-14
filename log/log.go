@@ -24,6 +24,23 @@ const (
 	ErrorLevel
 )
 
+func (l Level) String() string {
+	switch l {
+	case DebugLevel:
+		return "debug"
+	case InfoLevel:
+		return "info"
+	case NoticeLevel:
+		return "notice"
+	case WarnLevel:
+		return "warn"
+	case ErrorLevel:
+		return "error"
+	default:
+		return "(???)"
+	}
+}
+
 var (
 	level     Level
 	outLogger *log.Logger
