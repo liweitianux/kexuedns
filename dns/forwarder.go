@@ -27,12 +27,13 @@ const (
 
 var (
 	errQueryTimeout     = errors.New("query timed out")
+	errResolverNotFound = errors.New("resolver not found")
 )
 
 // TODO: router
 // TODO: cache
 type Forwarder struct {
-	resolvers []*Resolver
+	resolver  *Resolver // TODO: => resolver router
 	responses chan RawMsg
 	sessions  map[string]*Session // key: "QID:QType:QName"
 }
@@ -45,14 +46,13 @@ type Session struct {
 
 func NewForwarder() *Forwarder {
 	return &Forwarder{
-		resolvers: []*Resolver{},
 		responses: make(chan RawMsg),
 		sessions:  make(map[string]*Session),
 	}
 }
 
-func (f *Forwarder) AddResolver(r *Resolver) {
-	f.resolvers = append(f.resolvers, r)
+func (f *Forwarder) SetResolver(r *Resolver) {
+	f.resolver = r
 	go r.Receive(f.responses)
 }
 
@@ -94,6 +94,11 @@ func (f *Forwarder) serve(pc net.PacketConn, addr net.Addr, buf []byte) {
 }
 
 func (f *Forwarder) query(client net.Addr, msg RawMsg) (RawMsg, error) {
+	if f.resolver == nil {
+		log.Debugf("no resolver available")
+		return nil, errResolverNotFound
+	}
+
 	query, err := NewQueryMsg(msg)
 	if err != nil {
 		log.Errorf("failed to parse query: %v", err)
@@ -120,9 +125,7 @@ func (f *Forwarder) query(client net.Addr, msg RawMsg) (RawMsg, error) {
 		log.Errorf("failed to build query: %v", err)
 		return nil, err
 	}
-
-	r := f.resolvers[0] // TODO: router
-	if err := r.Query(msg); err != nil {
+	if err := f.resolver.Query(msg); err != nil {
 		return nil, err
 	}
 
