@@ -74,9 +74,22 @@ func main() {
 	}
 
 	go func() {
+		forwarder := dns.NewForwarder()
+
+		if r := conf.Resolver; r != nil {
+			resolver, err := dns.NewResolver(r.IP, r.Port, r.Hostname)
+			if err != nil {
+				log.Warnf("failed to create resolver with config: %+v, error: %v",
+					r, err)
+			} else {
+				forwarder.SetResolver(resolver)
+				log.Infof("added resolver: %+v", r)
+			}
+		}
+
 		listen := fmt.Sprintf("%s:%d", *addr, *port)
 		log.Infof("DNS service (UDP): %s", listen)
-		panic(dns.ListenAndServe(listen))
+		panic(forwarder.ListenAndServe(listen))
 	}()
 
 	http.Handle("/static/", http.StripPrefix("/static/", ui.ServeStatic()))
