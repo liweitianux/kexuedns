@@ -20,6 +20,7 @@ type Level int
 const (
 	DebugLevel Level = iota
 	InfoLevel
+	NoticeLevel
 	WarnLevel
 	ErrorLevel
 )
@@ -65,6 +66,8 @@ func SetLevelString(l string) {
 		level = ErrorLevel
 	case "warn", "warning":
 		level = WarnLevel
+	case "notice":
+		level = NoticeLevel
 	case "info":
 		level = InfoLevel
 	case "debug":
@@ -89,6 +92,14 @@ func Infof(format string, v ...any) {
 		return
 	}
 	format = fmt.Sprintf("[INFO] %s: %s\n", getOrigin(), format)
+	outLogger.Printf(format, v...)
+}
+
+func Noticef(format string, v ...any) {
+	if level > NoticeLevel {
+		return
+	}
+	format = fmt.Sprintf("[NOTICE] %s: %s\n", getOrigin(), format)
 	outLogger.Printf(format, v...)
 }
 
