@@ -172,7 +172,7 @@ func (r *Resolver) connect() error {
 
 	// TLS connection and handshake
 	conn := tls.Client(tconn, &tls.Config{
-		RootCAs:    config.RootCAs,
+		RootCAs:    config.Get().CaPool,
 		ServerName: r.hostname,
 	})
 	// Set deadlines to prevent indefinite blocking.
