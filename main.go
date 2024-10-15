@@ -27,8 +27,6 @@ func main() {
 	configDir := flag.String("config-dir", "",
 		fmt.Sprintf("config directory (default \"${XDG_CONFIG_HOME}/%s\")", progname))
 	configInit := flag.Bool("config-init", false, "initialize with the default configs")
-	addr := flag.String("addr", "127.0.0.1", "DNS listening address")
-	port := flag.Int("port", 5553, "DNS listening UDP port")
 	httpAddr := flag.String("http-addr", "127.0.0.1", "HTTP webui address")
 	httpPort := flag.Int("http-port", 8053, "HTTP webui port")
 	showVersion := flag.Bool("version", false, "show version")
@@ -66,9 +64,9 @@ func main() {
 	}
 
 	go func() {
+		conf := config.Get()
 		forwarder := dns.NewForwarder()
 
-		conf := config.Get()
 		if r := conf.Resolver; r != nil {
 			resolver, err := dns.NewResolver(r.IP, r.Port, r.Hostname)
 			if err != nil {
@@ -80,7 +78,7 @@ func main() {
 			}
 		}
 
-		listen := fmt.Sprintf("%s:%d", *addr, *port)
+		listen := fmt.Sprintf("%s:%d", conf.ListenAddr, conf.ListenPort)
 		log.Infof("DNS service (UDP): %s", listen)
 		panic(forwarder.ListenAndServe(listen))
 	}()

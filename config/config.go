@@ -28,6 +28,9 @@ type Config struct {
 }
 
 type ConfigFile struct {
+	// The listening address and port of the DNS service (UDP).
+	ListenAddr string `json:"listen_addr"`
+	ListenPort int    `json:"listen_port"`
 	// File containing the trusted CA certificates
 	// (e.g., /etc/ssl/certs/ca-certificates.crt)
 	// If empty, then use the system's trusted CA pool.
