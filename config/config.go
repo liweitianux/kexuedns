@@ -101,17 +101,18 @@ func Load(dir string) error {
 	}
 
 	if conf.CaFile != "" {
-		certs, err := os.ReadFile(conf.CaFile)
+		fp := getPath(conf.CaFile, dir)
+		certs, err := os.ReadFile(fp)
 		if err != nil {
-			log.Errorf("failed to read file [%s]: %v", conf.CaFile, err)
+			log.Errorf("failed to read file [%s]: %v", fp, err)
 			return err
 		}
 		conf.CaPool = x509.NewCertPool()
 		if ok := conf.CaPool.AppendCertsFromPEM(certs); !ok {
-			log.Errorf("failed to append CA certs from file: %s", conf.CaFile)
-			return fmt.Errorf("invalid CA file: %s", conf.CaFile)
+			log.Errorf("failed to append CA certs from file: %s", fp)
+			return fmt.Errorf("invalid CA file: %s", fp)
 		}
-		log.Infof("loaded CA certs from: %s", conf.CaFile)
+		log.Infof("loaded CA certs from: %s", fp)
 	} else {
 		var err error
 		conf.CaPool, err = x509.SystemCertPool()
@@ -142,4 +143,11 @@ func Set(cf *ConfigFile) error {
 	}
 	// TODO: update and write to file
 	return nil
+}
+
+func getPath(path string, dir string) string {
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(dir, path)
+	}
+	return path
 }
