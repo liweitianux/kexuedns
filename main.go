@@ -23,7 +23,7 @@ const progname = "kexuedns"
 var version string // set by build flags
 
 func main() {
-	logLevel := flag.String("log-level", "", "log level: debug/info/warn/error")
+	logLevel := flag.String("log-level", "info", "log level: debug/info/notice/warn/error")
 	configDir := flag.String("config-dir", "",
 		fmt.Sprintf("config directory (default \"${XDG_CONFIG_HOME}/%s\")", progname))
 	configInit := flag.Bool("config-init", false, "initialize with the default configs")
@@ -39,10 +39,8 @@ func main() {
 		os.Exit(0)
 	}
 
-	if *logLevel != "" {
-		log.SetLevelString(*logLevel)
-		log.Infof("set log level to [%s]", *logLevel)
-	}
+	log.SetLevelString(*logLevel)
+	log.Infof("set log level to [%s]", *logLevel)
 
 	if *configDir == "" {
 		if dir := os.Getenv("XDG_CONFIG_HOME"); dir == "" {
@@ -67,15 +65,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	conf := config.Get()
-	if *logLevel == "" {
-		log.SetLevelString(conf.LogLevel)
-		log.Infof("set log level to [%s]", conf.LogLevel)
-	}
-
 	go func() {
 		forwarder := dns.NewForwarder()
 
+		conf := config.Get()
 		if r := conf.Resolver; r != nil {
 			resolver, err := dns.NewResolver(r.IP, r.Port, r.Hostname)
 			if err != nil {
