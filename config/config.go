@@ -28,7 +28,6 @@ type Config struct {
 }
 
 type ConfigFile struct {
-	LogLevel string `json:"log_level"`
 	// File containing the trusted CA certificates
 	// (e.g., /etc/ssl/certs/ca-certificates.crt)
 	// If empty, then use the system's trusted CA pool.
@@ -46,9 +45,7 @@ type Resolver struct {
 	Hostname string `json:"hostname"`
 }
 
-var defaultConfigFile = ConfigFile{
-	LogLevel: log.InfoLevel.String(),
-}
+var defaultConfigFile = ConfigFile{}
 
 var config *Config
 var configDir string
