@@ -39,6 +39,15 @@ type ConfigFile struct {
 	Resolver *Resolver `json:"resolver"`
 }
 
+func (cf *ConfigFile) setDefaults() {
+	if cf.ListenAddr == "" {
+		cf.ListenAddr = "127.0.0.1"
+	}
+	if cf.ListenPort == 0 {
+		cf.ListenPort = 5553
+	}
+}
+
 type Resolver struct {
 	// IPv4 or IPv6 address
 	IP string `json:"ip"`
@@ -47,8 +56,6 @@ type Resolver struct {
 	// Hostname to verify the TLS certificate
 	Hostname string `json:"hostname"`
 }
-
-var defaultConfigFile = ConfigFile{}
 
 var config *Config
 var configDir string
@@ -72,7 +79,9 @@ func Initialize(dir string) error {
 		return err
 	}
 
-	data, err := json.MarshalIndent(&defaultConfigFile, "", "    ")
+	cf := ConfigFile{}
+	cf.setDefaults()
+	data, err := json.MarshalIndent(&cf, "", "    ")
 	if err != nil {
 		panic(err)
 	}
@@ -95,13 +104,16 @@ func Load(dir string) error {
 			log.Errorf("failed to load config from file [%s]: %v", fp, err)
 			return err
 		}
+		log.Infof("read config from file: %s", fp)
 	} else if errors.Is(err, os.ErrNotExist) {
-		conf.ConfigFile = defaultConfigFile
-		log.Infof("config file [%s] doesn't exist; use the default", fp)
+		log.Infof("config file [%s] doesn't exist; use the defaults", fp)
 	} else {
 		log.Errorf("failed to read config file [%s]: %v", fp, err)
 		return err
 	}
+
+	conf.ConfigFile.setDefaults()
+	log.Debugf("config file content: %+v", conf.ConfigFile)
 
 	if conf.CaFile != "" {
 		fp := getPath(conf.CaFile, dir)
