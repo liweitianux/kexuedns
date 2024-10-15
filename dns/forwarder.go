@@ -163,6 +163,8 @@ func (f *Forwarder) receive() {
 			continue
 		}
 		session.response <- resp
+		// OK to close the channel since it's buffered (i.e., has size).
+		close(session.response)
 		delete(f.sessions, key)
 	}
 }
@@ -176,6 +178,7 @@ func (f *Forwarder) clean() {
 		for k, v := range f.sessions {
 			if now.After(v.expireAt) {
 				log.Debugf("clean expired session [%s]", k)
+				close(v.response)
 				delete(f.sessions, k)
 			}
 		}
