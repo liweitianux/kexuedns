@@ -27,6 +27,7 @@ const (
 
 var (
 	errQueryTimeout     = errors.New("query timed out")
+	errQueryInvalid     = errors.New("query invalid")
 	errResolverNotFound = errors.New("resolver not found")
 )
 
@@ -81,6 +82,10 @@ func (f *Forwarder) ListenAndServe(address string) error {
 
 func (f *Forwarder) serve(pc net.PacketConn, addr net.Addr, buf []byte) {
 	resp, err := f.query(addr, buf)
+	if errors.Is(err, errQueryInvalid) {
+		// Unable to make a sensible reply; just drop it.
+		return
+	}
 	if err != nil {
 		// Reply with ServFail.
 		resp = buf
@@ -94,11 +99,6 @@ func (f *Forwarder) serve(pc net.PacketConn, addr net.Addr, buf []byte) {
 }
 
 func (f *Forwarder) query(client net.Addr, msg RawMsg) (RawMsg, error) {
-	if f.resolver == nil {
-		log.Debugf("no resolver available")
-		return nil, errResolverNotFound
-	}
-
 	query, err := NewQueryMsg(msg)
 	if err != nil {
 		log.Errorf("failed to parse query: %v", err)
@@ -124,6 +124,11 @@ func (f *Forwarder) query(client net.Addr, msg RawMsg) (RawMsg, error) {
 	if err != nil {
 		log.Errorf("failed to build query: %v", err)
 		return nil, err
+	}
+
+	if f.resolver == nil {
+		log.Debugf("no resolver available")
+		return nil, errResolverNotFound
 	}
 	if err := f.resolver.Query(msg); err != nil {
 		return nil, err
