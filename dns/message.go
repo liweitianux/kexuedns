@@ -29,6 +29,10 @@ const (
 	ipv6PrefixLength = 56
 )
 
+var (
+	errInvalidIP = errors.New("invalid/unspecified IP address")
+)
+
 // Session info to track and distinguish one specific query and response.
 type QuerySession struct {
 	ID   uint16
@@ -170,7 +174,7 @@ func (m *QueryMsg) SessionKey() string {
 func (m *QueryMsg) SetEdnsSubnet(ip netip.Addr, prefixLen int) error {
 	if !ip.IsValid() || ip.IsUnspecified() {
 		log.Errorf("invalid/unspecified IP address: %v", ip.String())
-		return errors.New("invalid/unspecified IP address")
+		return errInvalidIP
 	}
 
 	rh := dnsmessage.ResourceHeader{}

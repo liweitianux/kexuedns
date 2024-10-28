@@ -101,8 +101,7 @@ func (f *Forwarder) serve(pc net.PacketConn, addr net.Addr, buf []byte) {
 func (f *Forwarder) query(client net.Addr, msg RawMsg) (RawMsg, error) {
 	query, err := NewQueryMsg(msg)
 	if err != nil {
-		log.Errorf("failed to parse query: %v", err)
-		return nil, err
+		return nil, errQueryInvalid
 	}
 
 	myIP := config.GetMyIP()
