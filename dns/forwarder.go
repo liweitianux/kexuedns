@@ -14,6 +14,7 @@ import (
 
 	"kexuedns/config"
 	"kexuedns/log"
+	"kexuedns/util"
 )
 
 const (
@@ -21,8 +22,6 @@ const (
 
 	queryTimeout   = 5 * time.Second
 	sessionTimeout = 10 * time.Second
-
-	cleanInternval = 5 * time.Second
 )
 
 var (
@@ -36,19 +35,25 @@ var (
 type Forwarder struct {
 	resolver  *Resolver // TODO: => resolver router
 	responses chan RawMsg
-	sessions  map[string]*Session // key: "QID:QType:QName"
+	// key: "QID:QType:QName"
+	// value: *Session
+	sessions *util.TtlCache
 }
 
 type Session struct {
 	client   net.Addr
 	response chan RawMsg
-	expireAt time.Time
 }
 
 func NewForwarder() *Forwarder {
+	sessions := util.NewTtlCache(sessionTimeout, 0, func(key string, value any) {
+		s := value.(*Session)
+		close(s.response)
+		log.Debugf("cleaned expired session [%s]", key)
+	})
 	return &Forwarder{
 		responses: make(chan RawMsg),
-		sessions:  make(map[string]*Session),
+		sessions:  sessions,
 	}
 }
 
@@ -66,7 +71,6 @@ func (f *Forwarder) ListenAndServe(address string) error {
 	defer pc.Close()
 
 	go f.receive()
-	go f.clean()
 
 	for {
 		buf := make([]byte, maxQuerySize)
@@ -137,9 +141,8 @@ func (f *Forwarder) query(client net.Addr, msg RawMsg) (RawMsg, error) {
 	session := &Session{
 		client:   client,
 		response: make(chan RawMsg, 1),
-		expireAt: time.Now().Add(sessionTimeout),
 	}
-	f.sessions[key] = session
+	f.sessions.Set(key, session, util.DefaultTTL)
 	log.Debugf("added session with key: %s", key)
 
 	select {
@@ -147,11 +150,12 @@ func (f *Forwarder) query(client net.Addr, msg RawMsg) (RawMsg, error) {
 		log.Debugf("session [%s] succeeded (len=%d)", key, len(resp))
 		return resp, nil
 	case <-time.After(queryTimeout):
-		break
+		log.Warnf("session [%s] timed out", key)
+		f.sessions.Remove(key)
+		return nil, errQueryTimeout
 	}
 
-	log.Warnf("session [%s] timed out", key)
-	return nil, errQueryTimeout
+	panic("impossible")
 }
 
 func (f *Forwarder) receive() {
@@ -161,30 +165,13 @@ func (f *Forwarder) receive() {
 		if err != nil {
 			continue
 		}
-		session, exists := f.sessions[key]
-		if !exists {
-			log.Warnf("session [%s] not found", key)
-			continue
-		}
-		session.response <- resp
-		// OK to close the channel since it's buffered (i.e., has size).
-		close(session.response)
-		delete(f.sessions, key)
-	}
-}
-
-func (f *Forwarder) clean() {
-	ticker := time.NewTicker(cleanInternval)
-	for {
-		<-ticker.C
-		now := time.Now()
-		// TODO: rwlock
-		for k, v := range f.sessions {
-			if now.After(v.expireAt) {
-				log.Debugf("clean expired session [%s]", k)
-				close(v.response)
-				delete(f.sessions, k)
-			}
+		if v, ok := f.sessions.Pop(key); !ok {
+			log.Warnf("session [%s] not found or expired", key)
+		} else {
+			session := v.(*Session)
+			session.response <- resp
+			// OK to close the channel since it's buffered (i.e., has size).
+			close(session.response)
 		}
 	}
 }
