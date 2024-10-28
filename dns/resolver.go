@@ -185,8 +185,12 @@ func (r *Resolver) connect() error {
 	}
 	conn.SetDeadline(time.Time{}) // Reset the deadline.
 
+	cs := conn.ConnectionState()
+	log.Infof("[%s] connected: Version=%s, CipherSuite=%s, ServerName=%s, ALPN=%s",
+		r.name, tls.VersionName(cs.Version), tls.CipherSuiteName(cs.CipherSuite),
+		cs.ServerName, cs.NegotiatedProtocol)
+
 	r.client = conn
-	log.Infof("[%s] connected", r.name)
 	return nil
 }
 
