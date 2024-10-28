@@ -19,8 +19,8 @@ import (
 const (
 	maxQuerySize = 1024 // bytes
 
-	queryTimeout   = 15 * time.Second
-	sessionTimeout = 30 * time.Second
+	queryTimeout   = 5 * time.Second
+	sessionTimeout = 10 * time.Second
 
 	cleanInternval = 5 * time.Second
 )
