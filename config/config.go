@@ -122,19 +122,20 @@ func Load(dir string) error {
 			log.Errorf("failed to read file [%s]: %v", fp, err)
 			return err
 		}
-		conf.CaPool = x509.NewCertPool()
+		pool := x509.NewCertPool()
 		if ok := conf.CaPool.AppendCertsFromPEM(certs); !ok {
 			log.Errorf("failed to append CA certs from file: %s", fp)
 			return fmt.Errorf("invalid CA file: %s", fp)
 		}
+		conf.CaPool = pool
 		log.Infof("loaded CA certs from: %s", fp)
 	} else {
-		var err error
-		conf.CaPool, err = x509.SystemCertPool()
+		pool, err := x509.SystemCertPool()
 		if err != nil {
 			log.Errorf("failed to get system cert pool: %v", err)
 			return err
 		}
+		conf.CaPool = pool
 		log.Infof("use system cert pool")
 	}
 
