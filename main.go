@@ -98,6 +98,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.Handle("/api/", http.StripPrefix("/api", apiHandler))
 	mux.Handle("/static/", http.StripPrefix("/static/", ui.ServeStatic()))
+	mux.HandleFunc("GET /{$}", ui.ServeIndex) // NOTE: Require Go 1.22+
 
 	if *isDebug {
 		path := "/debug/pprof/"
