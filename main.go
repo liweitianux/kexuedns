@@ -11,6 +11,7 @@ import (
 	"flag"
 	"fmt"
 	"net/http"
+	"net/http/pprof"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -29,6 +30,7 @@ const progname = "kexuedns"
 var version string // set by build flags
 
 func main() {
+	isDebug := flag.Bool("debug", false, "enable debug profiling")
 	logLevel := flag.String("log-level", "info", "log level: debug/info/notice/warn/error")
 	configDir := flag.String("config-dir", "",
 		fmt.Sprintf("config directory (default \"${XDG_CONFIG_HOME}/%s\")", progname))
@@ -92,6 +94,17 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.Handle("/api/", http.StripPrefix("/api", apiHandler))
+
+	if *isDebug {
+		path := "/debug/pprof/"
+		mux.HandleFunc(path, pprof.Index)
+		mux.HandleFunc(path+"cmdline", pprof.Cmdline)
+		mux.HandleFunc(path+"profile", pprof.Profile)
+		mux.HandleFunc(path+"symbol", pprof.Symbol)
+		mux.HandleFunc(path+"trace", pprof.Trace)
+		log.Infof("enabled debug pprof at: http://%s:%d%s",
+			*httpAddr, *httpPort, path)
+	}
 
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
