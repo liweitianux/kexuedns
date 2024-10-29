@@ -221,6 +221,8 @@ func (r *Resolver) read() {
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				log.Debugf("[%s] remote closed socket", r.name)
+			} else if errors.Is(err, net.ErrClosed) {
+				log.Debugf("[%s] socket closed", r.name)
 			} else {
 				log.Errorf("[%s] failed to read response length: %v",
 					r.name, err)
