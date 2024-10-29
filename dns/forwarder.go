@@ -33,11 +33,13 @@ var (
 // TODO: router
 // TODO: cache
 type Forwarder struct {
+	address   string
 	resolver  *Resolver // TODO: => resolver router
 	responses chan RawMsg
 	// key: "QID:QType:QName"
 	// value: *Session
 	sessions *util.TtlCache
+	conn     net.PacketConn
 }
 
 type Session struct {
@@ -45,46 +47,71 @@ type Session struct {
 	response chan RawMsg
 }
 
-func NewForwarder() *Forwarder {
+func NewForwarder(address string) *Forwarder {
 	sessions := util.NewTtlCache(sessionTimeout, 0, func(key string, value any) {
 		s := value.(*Session)
 		close(s.response)
 		log.Debugf("cleaned expired session [%s]", key)
 	})
 	return &Forwarder{
-		responses: make(chan RawMsg),
-		sessions:  sessions,
+		address:  address,
+		sessions: sessions,
 	}
 }
 
 func (f *Forwarder) SetResolver(r *Resolver) {
+	if f.resolver != nil {
+		f.resolver.Close()
+	}
+
 	f.resolver = r
-	go r.Receive(f.responses)
 }
 
-func (f *Forwarder) ListenAndServe(address string) error {
-	pc, err := net.ListenPacket("udp", address)
+func (f *Forwarder) Stop() {
+	f.conn.Close()
+	f.conn = nil
+	log.Infof("connection closed")
+
+	if f.resolver != nil {
+		f.resolver.Close()
+		f.resolver = nil
+	}
+
+	close(f.responses)
+	log.Infof("forwarder stopped")
+}
+
+func (f *Forwarder) Serve() error {
+	pc, err := net.ListenPacket("udp", f.address)
 	if err != nil {
-		log.Errorf("failed to listen UDP at [%s]: %v", address, err)
+		log.Errorf("failed to listen UDP at [%s]: %v", f.address, err)
 		return err
 	}
-	defer pc.Close()
+	f.conn = pc
 
+	f.responses = make(chan RawMsg)
 	go f.receive()
 
+	log.Infof("DNS service (UDP): %s", f.address)
 	for {
 		buf := make([]byte, maxQuerySize)
 		n, addr, err := pc.ReadFrom(buf)
 		if err != nil {
+			if errors.Is(err, net.ErrClosed) {
+				log.Infof("connection closed; exiting ...")
+				break
+			}
 			log.Warnf("failed to read packet: %v", err)
 			continue
 		}
 
-		go f.serve(pc, addr, buf[:n])
+		go f.handle(pc, addr, buf[:n])
 	}
+
+	return nil
 }
 
-func (f *Forwarder) serve(pc net.PacketConn, addr net.Addr, buf []byte) {
+func (f *Forwarder) handle(pc net.PacketConn, addr net.Addr, buf []byte) {
 	resp, err := f.query(addr, buf)
 	if errors.Is(err, errQueryInvalid) {
 		// Unable to make a sensible reply; just drop it.
@@ -150,17 +177,23 @@ func (f *Forwarder) query(client net.Addr, msg RawMsg) (RawMsg, error) {
 		log.Debugf("session [%s] succeeded (len=%d)", key, len(resp))
 		return resp, nil
 	case <-time.After(queryTimeout):
-		log.Warnf("session [%s] timed out", key)
-		f.sessions.Remove(key)
-		return nil, errQueryTimeout
+		break
 	}
-
-	panic("impossible")
+	log.Warnf("session [%s] timed out", key)
+	f.sessions.Remove(key)
+	return nil, errQueryTimeout
 }
 
 func (f *Forwarder) receive() {
+	go f.resolver.Receive(f.responses)
+
 	for {
-		resp := <-f.responses
+		resp, ok := <-f.responses
+		if !ok {
+			log.Debugf("responses channel closed")
+			break
+		}
+
 		key, err := resp.SessionKey()
 		if err != nil {
 			continue
