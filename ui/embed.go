@@ -1,7 +1,13 @@
+// SPDX-License-Identifier: MIT
+//
+// Embed assets of the webui.
+//
+
 package ui
 
 import (
 	"embed"
+	"fmt"
 	"html/template"
 	"io/fs"
 	"net/http"
@@ -9,7 +15,7 @@ import (
 	"kexuedns/log"
 )
 
-//go:embed static template/*.tmpl
+//go:embed index.html static template/*.tmpl
 var content embed.FS
 
 var templates *template.Template
@@ -20,6 +26,16 @@ func ServeStatic() http.Handler {
 		panic(err)
 	}
 	return http.FileServer(http.FS(staticFS))
+}
+
+func ServeIndex(w http.ResponseWriter, r *http.Request) {
+	data, err := content.ReadFile("index.html")
+	if err != nil {
+		http.Error(w, fmt.Sprintf("500 internal server error: %v", err),
+			http.StatusInternalServerError)
+		return
+	}
+	w.Write(data)
 }
 
 func GetTemplate(name string) *template.Template {
