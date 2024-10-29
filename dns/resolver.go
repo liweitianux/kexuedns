@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	dotPort     = 853
+	dotPort     = 853 // default DoT port
 	channelSize = 100
 
 	readTimeout  = 15 * time.Second
@@ -212,13 +212,12 @@ func (r *Resolver) read() {
 	}
 
 	r.reading = true
-	log.Infof("[%s] started reading", r.name)
+	log.Debugf("[%s] started reading", r.name)
 
 	for {
 		// read response length
 		lbuf := make([]byte, 2)
-		_, err := io.ReadFull(r.client, lbuf)
-		if err != nil {
+		if _, err := io.ReadFull(r.client, lbuf); err != nil {
 			if errors.Is(err, io.EOF) {
 				log.Debugf("[%s] remote closed socket", r.name)
 			} else if errors.Is(err, net.ErrClosed) {
@@ -233,8 +232,7 @@ func (r *Resolver) read() {
 		// read response content
 		l := int(lbuf[0])<<8 | int(lbuf[1])
 		mbuf := make([]byte, l)
-		_, err = io.ReadFull(r.client, mbuf)
-		if err != nil {
+		if _, err := io.ReadFull(r.client, mbuf); err != nil {
 			log.Errorf("[%s] failed to read response content: %v", r.name, err)
 			break
 		}
@@ -244,7 +242,7 @@ func (r *Resolver) read() {
 	}
 
 	r.reading = false
-	log.Infof("[%s] stopped reading", r.name)
+	log.Debugf("[%s] stopped reading", r.name)
 
 	r.disconnect()
 }

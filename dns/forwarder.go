@@ -70,7 +70,6 @@ func (f *Forwarder) SetResolver(r *Resolver) {
 func (f *Forwarder) Stop() {
 	f.conn.Close()
 	f.conn = nil
-	log.Infof("connection closed")
 
 	if f.resolver != nil {
 		f.resolver.Close()
@@ -98,7 +97,7 @@ func (f *Forwarder) Serve() error {
 		n, addr, err := pc.ReadFrom(buf)
 		if err != nil {
 			if errors.Is(err, net.ErrClosed) {
-				log.Infof("connection closed; exiting ...")
+				log.Infof("connection closed; stopping ...")
 				break
 			}
 			log.Warnf("failed to read packet: %v", err)
@@ -198,12 +197,14 @@ func (f *Forwarder) receive() {
 		if err != nil {
 			continue
 		}
+
 		if v, ok := f.sessions.Pop(key); !ok {
 			log.Warnf("session [%s] not found or expired", key)
 		} else {
 			session := v.(*Session)
 			session.response <- resp
-			// OK to close the channel since it's buffered (i.e., has size).
+			// OK to close the channel since it's buffered
+			// (i.e., created with size).
 			close(session.response)
 		}
 	}

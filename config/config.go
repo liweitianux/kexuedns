@@ -21,6 +21,7 @@ const (
 )
 
 type Config struct {
+	// Embed the config file content for later save.
 	ConfigFile
 
 	// Pool of trusted CAs parsed from CaFile.
@@ -57,8 +58,10 @@ type Resolver struct {
 	Hostname string `json:"hostname"`
 }
 
-var config *Config
-var configDir string
+var (
+	config    *Config
+	configDir string
+)
 
 func Initialize(dir string) error {
 	fp := filepath.Join(dir, configFilename)
