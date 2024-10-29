@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"kexuedns/api"
 	"kexuedns/config"
 	"kexuedns/dns"
 	"kexuedns/log"
@@ -92,8 +93,11 @@ func main() {
 		}
 	}()
 
+	apiHandler := api.NewApiHandler(forwarder)
+
 	mux := http.NewServeMux()
 	mux.Handle("/api/", http.StripPrefix("/api", apiHandler))
+	mux.Handle("/static/", http.StripPrefix("/static/", ui.ServeStatic()))
 
 	if *isDebug {
 		path := "/debug/pprof/"
