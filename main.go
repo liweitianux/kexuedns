@@ -6,11 +6,17 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"sync"
+	"syscall"
+	"time"
 
 	"kexuedns/config"
 	"kexuedns/dns"
@@ -63,10 +69,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	go func() {
-		conf := config.Get()
-		forwarder := dns.NewForwarder()
+	conf := config.Get()
+	addr := fmt.Sprintf("%s:%d", conf.ListenAddr, conf.ListenPort)
+	forwarder := dns.NewForwarder(addr)
 
+	go func() {
 		if r := conf.Resolver; r != nil {
 			resolver, err := dns.NewResolver(r.IP, r.Port, r.Hostname)
 			if err != nil {
@@ -78,15 +85,42 @@ func main() {
 			}
 		}
 
-		listen := fmt.Sprintf("%s:%d", conf.ListenAddr, conf.ListenPort)
-		log.Infof("DNS service (UDP): %s", listen)
-		panic(forwarder.ListenAndServe(listen))
+		if err := forwarder.Serve(); err != nil {
+			panic(err)
+		}
 	}()
 
-	http.Handle("/static/", http.StripPrefix("/static/", ui.ServeStatic()))
-	_ = ui.GetTemplate("xxx")
+	mux := http.NewServeMux()
+	mux.Handle("/api/", http.StripPrefix("/api", apiHandler))
 
-	httpListen := fmt.Sprintf("%s:%d", *httpAddr, *httpPort)
-	log.Infof("HTTP webui: http://%s", httpListen)
-	http.ListenAndServe(httpListen, nil)
+	wg := &sync.WaitGroup{}
+	wg.Add(1)
+	server := &http.Server{
+		Addr:    fmt.Sprintf("%s:%d", *httpAddr, *httpPort),
+		Handler: mux,
+	}
+	go func() {
+		defer wg.Done()
+		log.Infof("HTTP webui: http://%s", server.Addr)
+		err := server.ListenAndServe()
+		if !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("webui server failed: %v", err)
+		}
+	}()
+
+	// Set up signal capturing.
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+	<-stop
+
+	// Clean up.
+	forwarder.Stop()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := server.Shutdown(ctx); err != nil {
+		log.Errorf("failed to shutdown the webui server: %v", err)
+	}
+
+	wg.Wait()
+	log.Infof("done; exiting")
 }
