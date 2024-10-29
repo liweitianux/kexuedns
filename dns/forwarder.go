@@ -8,6 +8,7 @@ package dns
 import (
 	"errors"
 	"net"
+	"sync"
 	"time"
 
 	"golang.org/x/net/dns/dnsmessage"
@@ -40,6 +41,7 @@ type Forwarder struct {
 	// value: *Session
 	sessions *util.TtlCache
 	conn     net.PacketConn
+	wg       *sync.WaitGroup
 }
 
 type Session struct {
@@ -56,6 +58,7 @@ func NewForwarder(address string) *Forwarder {
 	return &Forwarder{
 		address:  address,
 		sessions: sessions,
+		wg:       &sync.WaitGroup{},
 	}
 }
 
@@ -77,6 +80,8 @@ func (f *Forwarder) Stop() {
 	}
 
 	close(f.responses)
+	f.wg.Wait()
+
 	log.Infof("forwarder stopped")
 }
 
@@ -89,6 +94,7 @@ func (f *Forwarder) Serve() error {
 	f.conn = pc
 
 	f.responses = make(chan RawMsg)
+	f.wg.Add(1)
 	go f.receive()
 
 	log.Infof("DNS service (UDP): %s", f.address)
@@ -208,4 +214,6 @@ func (f *Forwarder) receive() {
 			close(session.response)
 		}
 	}
+
+	f.wg.Done()
 }

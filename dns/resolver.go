@@ -12,6 +12,7 @@ import (
 	"io"
 	"net"
 	"net/netip"
+	"sync"
 	"syscall"
 	"time"
 
@@ -41,6 +42,7 @@ type Resolver struct {
 	responses chan RawMsg
 	reading   bool
 	receiving bool
+	wg        *sync.WaitGroup
 }
 
 func NewResolver(ip string, port int, hostname string) (*Resolver, error) {
@@ -66,6 +68,7 @@ func NewResolver(ip string, port int, hostname string) (*Resolver, error) {
 		port:      port,
 		hostname:  hostname,
 		responses: make(chan RawMsg, channelSize),
+		wg:        &sync.WaitGroup{},
 	}
 	// Perform the connection to catch the possible errors early.
 	if err := r.connect(); err != nil {
@@ -119,7 +122,9 @@ func (r *Resolver) Receive(ch chan RawMsg) {
 		panic("already started receiving")
 	}
 
+	r.wg.Add(1)
 	r.receiving = true
+
 	for {
 		msg, ok := <-r.responses
 		if !ok {
@@ -128,19 +133,22 @@ func (r *Resolver) Receive(ch chan RawMsg) {
 		}
 		ch <- msg
 	}
+
 	r.receiving = false
+	r.wg.Done()
 }
 
 // Disconnect and close channels.
 func (r *Resolver) Close() {
 	r.disconnect()
 	close(r.responses)
+
+	r.wg.Wait()
 	log.Infof("[%s] closed", r.name)
 }
 
 func (r *Resolver) disconnect() {
 	if r.client == nil {
-		log.Warnf("[%s] not connected yet", r.name)
 		return
 	}
 
@@ -211,6 +219,7 @@ func (r *Resolver) read() {
 		return
 	}
 
+	r.wg.Add(1)
 	r.reading = true
 	log.Debugf("[%s] started reading", r.name)
 
@@ -245,4 +254,5 @@ func (r *Resolver) read() {
 	log.Debugf("[%s] stopped reading", r.name)
 
 	r.disconnect()
+	r.wg.Done()
 }
