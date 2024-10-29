@@ -40,6 +40,7 @@ type Resolver struct {
 	client    *tls.Conn
 	responses chan RawMsg
 	reading   bool
+	receiving bool
 }
 
 func NewResolver(ip string, port int, hostname string) (*Resolver, error) {
@@ -114,14 +115,20 @@ Lretry:
 }
 
 func (r *Resolver) Receive(ch chan RawMsg) {
+	if r.receiving {
+		panic("already started receiving")
+	}
+
+	r.receiving = true
 	for {
 		msg, ok := <-r.responses
 		if !ok {
-			log.Infof("[%s] channel responses closed", r.name)
-			return
+			log.Debugf("[%s] responses channel closed", r.name)
+			break
 		}
 		ch <- msg
 	}
+	r.receiving = false
 }
 
 // Disconnect and close channels.
