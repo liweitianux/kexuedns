@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -26,15 +27,20 @@ import (
 	"kexuedns/ui"
 )
 
-const progname = "kexuedns"
+const progname = "KexueDNS"
 
-var version string // set by build flags
+var (
+	// set by build flags
+	version     string
+	versionDate string
+)
 
 func main() {
 	isDebug := flag.Bool("debug", false, "enable debug profiling")
 	logLevel := flag.String("log-level", "info", "log level: debug/info/notice/warn/error")
 	configDir := flag.String("config-dir", "",
-		fmt.Sprintf("config directory (default \"${XDG_CONFIG_HOME}/%s\")", progname))
+		fmt.Sprintf("config directory (default \"${XDG_CONFIG_HOME}/%s\")",
+			strings.ToLower(progname)))
 	configInit := flag.Bool("config-init", false, "initialize with the default configs")
 	httpAddr := flag.String("http-addr", "127.0.0.1", "HTTP webui address")
 	httpPort := flag.Int("http-port", 8053, "HTTP webui port")
@@ -42,7 +48,7 @@ func main() {
 	flag.Parse()
 
 	if *showVersion {
-		fmt.Printf("%s %s\n", progname, version)
+		fmt.Printf("%s %s (%s)\n", progname, version, versionDate)
 		os.Exit(0)
 	}
 
@@ -54,7 +60,7 @@ func main() {
 			fmt.Printf("ERROR: ${XDG_CONFIG_HOME} required but missing\n")
 			os.Exit(1)
 		} else {
-			*configDir = filepath.Join(dir, progname)
+			*configDir = filepath.Join(dir, strings.ToLower(progname))
 			log.Infof("use default config directory: %s", *configDir)
 		}
 	}
