@@ -17,6 +17,7 @@ usage: ${0##*/} <full|tag|count|commit> [--dirty] [default]
     tag    : get the last tag
     count  : get the commit count since last tag
     commit : get the current commit
+    date   : get the datetime of the current commit
 
     --dirty : append a mark (${dirty_mark}) if repo is dirty
 
@@ -41,6 +42,10 @@ get_count() {
 
 get_commit() {
 	git rev-list --max-count=1 --abbrev-commit HEAD
+}
+
+get_date() {
+	git --no-pager log -1 --date=iso8601-strict --format="%cd"
 }
 
 get_full() {
@@ -85,6 +90,9 @@ count)
 	;;
 commit)
 	echo "$(get_commit)${dirty}"
+	;;
+date)
+	get_date
 	;;
 *)
 	usage
