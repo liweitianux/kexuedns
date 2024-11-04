@@ -52,6 +52,11 @@ func main() {
 		os.Exit(0)
 	}
 
+	config.SetVersion(&config.VersionInfo{
+		Version: version,
+		Date:    versionDate,
+	})
+
 	log.SetLevelString(*logLevel)
 	log.Infof("set log level to [%s]", *logLevel)
 
