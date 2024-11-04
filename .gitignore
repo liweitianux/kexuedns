@@ -3,3 +3,5 @@ _*
 /vendor/
 *.log
 *.bak
+
+/ui/static/tailwindcss.js

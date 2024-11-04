@@ -16,3 +16,7 @@ endif
 all:
 	go mod tidy
 	env CGO_ENABLED=0 go build $(BUILD_ARGS)
+
+all: ui/static/tailwindcss.js
+ui/static/tailwindcss.js:
+	curl -o $@ https://cdn.tailwindcss.com/3.4.13
