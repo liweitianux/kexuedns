@@ -5,6 +5,12 @@
 
 "use strict";
 
+function initNavbar() {
+    const button = document.getElementById("navbar-button");
+    const menu = document.getElementById("navbar-menu");
+    button.addEventListener("click", () => menu.classList.toggle("hidden"));
+}
+
 async function getVersionInfo() {
     const url = "/api/version";
     try {
@@ -21,5 +27,6 @@ async function getVersionInfo() {
 };
 
 document.addEventListener("DOMContentLoaded", () => {
+    initNavbar();
     getVersionInfo();
 });
