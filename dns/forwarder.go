@@ -15,7 +15,7 @@ import (
 
 	"kexuedns/config"
 	"kexuedns/log"
-	"kexuedns/util"
+	"kexuedns/util/ttlcache"
 )
 
 const (
@@ -39,7 +39,7 @@ type Forwarder struct {
 	responses chan RawMsg
 	// key: "QID:QType:QName"
 	// value: *Session
-	sessions *util.TtlCache
+	sessions *ttlcache.Cache
 	conn     net.PacketConn
 	wg       *sync.WaitGroup
 }
@@ -50,7 +50,7 @@ type Session struct {
 }
 
 func NewForwarder(address string) *Forwarder {
-	sessions := util.NewTtlCache(sessionTimeout, 0, func(key string, value any) {
+	sessions := ttlcache.New(sessionTimeout, 0, func(key string, value any) {
 		s := value.(*Session)
 		close(s.response)
 		log.Debugf("cleaned expired session [%s]", key)
@@ -174,7 +174,7 @@ func (f *Forwarder) query(client net.Addr, msg RawMsg) (RawMsg, error) {
 		client:   client,
 		response: make(chan RawMsg, 1),
 	}
-	f.sessions.Set(key, session, util.DefaultTTL)
+	f.sessions.Set(key, session, ttlcache.DefaultTTL)
 	log.Debugf("added session with key: %s", key)
 
 	select {

@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 //
-// Utilities - TTL cache
+// TTL cache
 //
 
-package util
+package ttlcache
 
 import (
 	"errors"
@@ -18,30 +18,30 @@ const (
 
 const defaultInterval = 5 * time.Second // default cleanup interval
 
-var ErrCacheKeyExists = errors.New("cache key already exists")
+var ErrKeyExists = errors.New("key already exists")
 
-type TtlCache struct {
-	items      map[string]*ttlCacheItem
+type Cache struct {
+	items      map[string]*cacheItem
 	lock       sync.RWMutex
 	defaultTTL time.Duration
 	onEviction func(string, any)
 }
 
-type ttlCacheItem struct {
+type cacheItem struct {
 	value    any
 	expireAt int64 // UnixNano
 }
 
-func NewTtlCache(
+func New(
 	defaultTTL time.Duration,
 	interval time.Duration,
 	onEviction func(string, any),
-) *TtlCache {
+) *Cache {
 	if interval <= 0 {
 		interval = defaultInterval
 	}
-	c := &TtlCache{
-		items:      make(map[string]*ttlCacheItem),
+	c := &Cache{
+		items:      make(map[string]*cacheItem),
 		lock:       sync.RWMutex{},
 		defaultTTL: defaultTTL,
 		onEviction: onEviction,
@@ -51,15 +51,15 @@ func NewTtlCache(
 }
 
 // Add the key and value with the TTL.
-// If key already exists, return ErrCacheKeyExists.
-func (c *TtlCache) Add(key string, value any, ttl time.Duration) error {
+// If key already exists, return ErrKeyExists.
+func (c *Cache) Add(key string, value any, ttl time.Duration) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 	if _, exists := c.items[key]; exists {
-		return ErrCacheKeyExists
+		return ErrKeyExists
 	}
 
-	c.items[key] = &ttlCacheItem{
+	c.items[key] = &cacheItem{
 		value:    value,
 		expireAt: c.getExpireAt(ttl),
 	}
@@ -67,18 +67,18 @@ func (c *TtlCache) Add(key string, value any, ttl time.Duration) error {
 }
 
 // Similar to Add(), but overwrite the existing one.
-func (c *TtlCache) Set(key string, value any, ttl time.Duration) {
+func (c *Cache) Set(key string, value any, ttl time.Duration) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
-	c.items[key] = &ttlCacheItem{
+	c.items[key] = &cacheItem{
 		value:    value,
 		expireAt: c.getExpireAt(ttl),
 	}
 }
 
 // Get the value of key, with a boolean indicating whether it's valid.
-func (c *TtlCache) Get(key string) (any, bool) {
+func (c *Cache) Get(key string) (any, bool) {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 
@@ -96,7 +96,7 @@ func (c *TtlCache) Get(key string) (any, bool) {
 }
 
 // Similar to Get() but also remove it.
-func (c *TtlCache) Pop(key string) (any, bool) {
+func (c *Cache) Pop(key string) (any, bool) {
 	v, ok := c.Get(key)
 	if ok {
 		c.lock.Lock()
@@ -107,7 +107,7 @@ func (c *TtlCache) Pop(key string) (any, bool) {
 }
 
 // Remove the item of key and invoke the eviction callback.
-func (c *TtlCache) Remove(key string) {
+func (c *Cache) Remove(key string) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
@@ -120,7 +120,7 @@ func (c *TtlCache) Remove(key string) {
 	}
 }
 
-func (c *TtlCache) getExpireAt(ttl time.Duration) int64 {
+func (c *Cache) getExpireAt(ttl time.Duration) int64 {
 	if ttl < 0 {
 		return -1
 	}
@@ -130,7 +130,7 @@ func (c *TtlCache) getExpireAt(ttl time.Duration) int64 {
 	return time.Now().Add(ttl).UnixNano()
 }
 
-func (c *TtlCache) clean(interval time.Duration) {
+func (c *Cache) clean(interval time.Duration) {
 	type kvItem struct {
 		key   string
 		value any
