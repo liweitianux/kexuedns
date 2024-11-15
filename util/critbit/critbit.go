@@ -121,11 +121,10 @@ func (t *Tree) Get(key []byte) (any, bool) {
 	}
 }
 
-// Insert the key (key) in the tree and associate it with the value (value).
-// Return a boolean indicating whether the key has been inserted.
-// If the key already exists, Insert() will not modify the tree and
-// return false.
-func (t *Tree) Insert(key []byte, value any) bool {
+// Insert/update the key and value in the tree.
+// If the key already exists and replace is true, the old value is replaced
+// and returned.
+func (t *Tree) insert(key []byte, value any, replace bool) (any, bool) {
 	t.lock.Lock()
 	defer t.lock.Unlock()
 
@@ -138,7 +137,7 @@ func (t *Tree) Insert(key []byte, value any) bool {
 		}
 		copy(nodeE.key, key)
 		t.root = nodeE
-		return true
+		return nil, true
 	}
 
 	// Walk the tree for the best memeber.
@@ -172,7 +171,13 @@ func (t *Tree) Insert(key []byte, value any) bool {
 	if !bytes.Equal(nodeE.key, key) {
 		panic("assertion failure")
 	}
-	return false // already exists
+	if replace {
+		oldValue := nodeE.value
+		nodeE.value = value
+		return oldValue, false // updated
+	} else {
+		return nil, false
+	}
 
 NewNode:
 	// Find the differing bit (i.e., critical bit)
@@ -223,7 +228,23 @@ NewNode:
 	newNodeI.children[direction] = *wherep
 	*wherep = newNodeI
 
-	return true // inserted
+	return nil, true // inserted
+}
+
+// Insert the key (key) in the tree and associate it with the value (value).
+// Return a boolean indicating whether the key has been inserted.
+// If the key already exists, Insert() will not modify the tree and
+// return false.
+func (t *Tree) Insert(key []byte, value any) bool {
+	_, ok := t.insert(key, value, false)
+	return ok
+}
+
+// Set the key (key) in the tree and update its value if it exists.
+// Return (nil, true) if the key didn't exist yet; otherwise, return the old
+// value and false.
+func (t *Tree) Set(key []byte, value any) (any, bool) {
+	return t.insert(key, value, true)
 }
 
 // Delete the key (key) from the tree.
