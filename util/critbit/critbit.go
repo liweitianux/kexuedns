@@ -27,7 +27,6 @@ import (
 	"fmt"
 	"io"
 	"strconv"
-	"sync"
 )
 
 type nodeKind int
@@ -87,17 +86,17 @@ func (n *nodeExternal) dump() string {
 	return fmt.Sprintf("key=%s, value=%v", keystr, n.value)
 }
 
+// Crit-bit Tree
+// NOTE: This code doesn't use any internal lock to protect concurrent
+// accesses.  It's left for the consumer to choose the proper locks whenever
+// concurrency is needed.
 type Tree struct {
 	root iNode
-	lock sync.RWMutex
 }
 
 // Get the value for key (key).
 // Return the value and a boolean indicating whether the key exists.
 func (t *Tree) Get(key []byte) (any, bool) {
-	t.lock.RLock()
-	defer t.lock.RUnlock()
-
 	node := t.root
 	if node == nil {
 		return nil, false // empty tree
@@ -125,9 +124,6 @@ func (t *Tree) Get(key []byte) (any, bool) {
 // If the key already exists and replace is true, the old value is replaced
 // and returned.
 func (t *Tree) insert(key []byte, value any, replace bool) (any, bool) {
-	t.lock.Lock()
-	defer t.lock.Unlock()
-
 	node := t.root
 	if node == nil {
 		// empty tree
@@ -250,9 +246,6 @@ func (t *Tree) Set(key []byte, value any) (any, bool) {
 // Delete the key (key) from the tree.
 // Return the associated value and a boolean indicating whether the key exists.
 func (t *Tree) Delete(key []byte) (any, bool) {
-	t.lock.Lock()
-	defer t.lock.Unlock()
-
 	if t.root == nil {
 		return nil, false // empty tree
 	}
@@ -293,9 +286,6 @@ func (t *Tree) Delete(key []byte) (any, bool) {
 // Return the key and value of the matched node, and a boolean indicating
 // whether there is a match.
 func (t *Tree) LongestPrefix(s []byte) ([]byte, any, bool) {
-	t.lock.RLock()
-	defer t.lock.RUnlock()
-
 	return t.longestPrefix(t.root, s)
 }
 
@@ -341,9 +331,6 @@ type WalkFn func(key []byte, value any) bool
 // Return true if the walk finished without being terminated by the callback
 // function (i.e., returned false); otherwise false.
 func (t *Tree) Walk(fn WalkFn) bool {
-	t.lock.RLock()
-	defer t.lock.RUnlock()
-
 	return t.walk(t.root, fn)
 }
 
@@ -373,9 +360,6 @@ func (t *Tree) walk(node iNode, fn WalkFn) bool {
 // Return true if the walk finished without being terminated by the callback
 // function (i.e., returned false); otherwise false.
 func (t *Tree) WalkPrefixed(prefix []byte, fn WalkFn) bool {
-	t.lock.RLock()
-	defer t.lock.RUnlock()
-
 	node := t.root
 	if node == nil {
 		return true // empty tree
@@ -434,9 +418,6 @@ func (t *Tree) walkPrefixed(top iNode, prefix []byte, fn WalkFn) bool {
 
 // Print the whole tree for debugging.
 func (t *Tree) Dump(w io.Writer) {
-	t.lock.RLock()
-	defer t.lock.RUnlock()
-
 	if t.root == nil {
 		fmt.Fprintf(w, "(empty)")
 		return
