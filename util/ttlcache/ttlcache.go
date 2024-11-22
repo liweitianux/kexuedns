@@ -32,6 +32,10 @@ type cacheItem struct {
 	expireAt int64 // UnixNano
 }
 
+func (i *cacheItem) isExpired(now int64) bool {
+	return i.expireAt > 0 && i.expireAt < now
+}
+
 func New(
 	defaultTTL time.Duration,
 	interval time.Duration,
@@ -86,7 +90,7 @@ func (c *Cache) Get(key string) (any, bool) {
 	if !exists {
 		return nil, false
 	}
-	if item.expireAt > 0 && item.expireAt < time.Now().UnixNano() {
+	if item.isExpired(time.Now().UnixNano()) {
 		if c.onEviction != nil {
 			c.onEviction(key, item.value)
 		}
@@ -147,7 +151,7 @@ func (c *Cache) clean(interval time.Duration) {
 		c.lock.Lock()
 		now := time.Now().UnixNano()
 		for key, item := range c.items {
-			if item.expireAt > 0 && item.expireAt < now {
+			if item.isExpired(now) {
 				delete(c.items, key)
 				evictedItems = append(evictedItems, &kvItem{
 					key:   key,
