@@ -84,7 +84,7 @@ func (c *Cache) Set(key string, value any, ttl time.Duration) {
 	}
 }
 
-// Get the value of key, with a boolean indicating whether it's valid.
+// Get the value of key, with a boolean indicating whether it was found.
 func (c *Cache) Get(key string) (any, bool) {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
@@ -94,7 +94,7 @@ func (c *Cache) Get(key string) (any, bool) {
 		return nil, false
 	}
 	if item.isExpired(time.Now().UnixNano()) {
-		c.onEviction(key, item.value)
+		// Leave and let clean() routine clean it.
 		return nil, false
 	}
 	return item.value, true
