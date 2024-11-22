@@ -185,7 +185,7 @@ func (f *Forwarder) query(client net.Addr, msg RawMsg) (RawMsg, error) {
 		break
 	}
 	log.Warnf("session [%s] timed out", key)
-	f.sessions.Remove(key)
+	f.sessions.Delete(key)
 	return nil, errQueryTimeout
 }
 

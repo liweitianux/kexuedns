@@ -115,7 +115,7 @@ func (c *Cache) Pop(key string) (any, bool) {
 }
 
 // Remove the item of key and invoke the eviction callback.
-func (c *Cache) Remove(key string) {
+func (c *Cache) Delete(key string) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
