@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	DefaultTTL = 0
+	DefaultTTL = 0                // use default TTL of the TtlCache instance
 	NoTTL      = -1 * time.Second // no expiration
 )
 
@@ -22,7 +22,7 @@ var ErrKeyExists = errors.New("key already exists")
 
 type Cache struct {
 	items      map[string]*cacheItem
-	lock       sync.RWMutex
+	lock       sync.RWMutex // protect concurrent cleanups
 	defaultTTL time.Duration
 	onEviction func(string, any)
 }
@@ -96,11 +96,14 @@ func (c *Cache) Get(key string) (any, bool) {
 }
 
 // Similar to Get() but also remove it.
+// NOTE: The eviction callback will be skipped; otherwise, it might simply
+// destroy the returned value.
 func (c *Cache) Pop(key string) (any, bool) {
 	v, ok := c.Get(key)
 	if ok {
 		c.lock.Lock()
 		delete(c.items, key)
+		// Skip calling the eviction callback to ensure the value valid.
 		c.lock.Unlock()
 	}
 	return v, ok
