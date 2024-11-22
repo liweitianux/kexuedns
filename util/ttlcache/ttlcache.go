@@ -36,6 +36,12 @@ func (i *cacheItem) isExpired(now int64) bool {
 	return i.expireAt > 0 && i.expireAt < now
 }
 
+var itemPool = sync.Pool{
+	New: func() any {
+		return &cacheItem{}
+	},
+}
+
 func New(
 	defaultTTL time.Duration,
 	interval time.Duration,
@@ -62,14 +68,15 @@ func New(
 func (c *Cache) Add(key string, value any, ttl time.Duration) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
+
 	if _, exists := c.items[key]; exists {
 		return ErrKeyExists
 	}
 
-	c.items[key] = &cacheItem{
-		value:    value,
-		expireAt: c.getExpireAt(ttl),
-	}
+	item := itemPool.Get().(*cacheItem)
+	item.value = value
+	item.expireAt = c.getExpireAt(ttl)
+	c.items[key] = item
 	return nil
 }
 
@@ -78,10 +85,10 @@ func (c *Cache) Set(key string, value any, ttl time.Duration) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
-	c.items[key] = &cacheItem{
-		value:    value,
-		expireAt: c.getExpireAt(ttl),
-	}
+	item := itemPool.Get().(*cacheItem)
+	item.value = value
+	item.expireAt = c.getExpireAt(ttl)
+	c.items[key] = item
 }
 
 // Get the value of key, with a boolean indicating whether it was found.
@@ -104,14 +111,23 @@ func (c *Cache) Get(key string) (any, bool) {
 // NOTE: The eviction callback will be skipped; otherwise, it might simply
 // destroy the returned value.
 func (c *Cache) Pop(key string) (any, bool) {
-	v, ok := c.Get(key)
-	if ok {
-		c.lock.Lock()
-		delete(c.items, key)
-		// Skip calling the eviction callback to ensure the value valid.
-		c.lock.Unlock()
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	item, exists := c.items[key]
+	if !exists {
+		return nil, false
 	}
-	return v, ok
+
+	delete(c.items, key)
+	// Skip calling the eviction callback to ensure the value valid.
+	itemPool.Put(item)
+
+	if item.isExpired(time.Now().UnixNano()) {
+		return nil, false
+	}
+
+	return item.value, true
 }
 
 // Remove the item of key and invoke the eviction callback.
@@ -123,6 +139,7 @@ func (c *Cache) Delete(key string) {
 	if exists {
 		delete(c.items, key)
 		c.onEviction(key, item.value)
+		itemPool.Put(item)
 	}
 }
 
@@ -152,6 +169,7 @@ func (c *Cache) clean(interval time.Duration) {
 		for key, item := range c.items {
 			if item.isExpired(now) {
 				delete(c.items, key)
+				itemPool.Put(item)
 				evictedItems = append(evictedItems, &kvItem{
 					key:   key,
 					value: item.value,
