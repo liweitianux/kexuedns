@@ -44,6 +44,9 @@ func New(
 	if interval <= 0 {
 		interval = defaultInterval
 	}
+	if onEviction == nil {
+		onEviction = func(string, any) {} // nop
+	}
 	c := &Cache{
 		items:      make(map[string]*cacheItem),
 		lock:       sync.RWMutex{},
@@ -91,9 +94,7 @@ func (c *Cache) Get(key string) (any, bool) {
 		return nil, false
 	}
 	if item.isExpired(time.Now().UnixNano()) {
-		if c.onEviction != nil {
-			c.onEviction(key, item.value)
-		}
+		c.onEviction(key, item.value)
 		return nil, false
 	}
 	return item.value, true
@@ -121,9 +122,7 @@ func (c *Cache) Remove(key string) {
 	item, exists := c.items[key]
 	if exists {
 		delete(c.items, key)
-		if c.onEviction != nil {
-			c.onEviction(key, item.value)
-		}
+		c.onEviction(key, item.value)
 	}
 }
 
@@ -161,10 +160,8 @@ func (c *Cache) clean(interval time.Duration) {
 		}
 		c.lock.Unlock()
 
-		if c.onEviction != nil {
-			for _, kv := range evictedItems {
-				c.onEviction(kv.key, kv.value)
-			}
+		for _, kv := range evictedItems {
+			c.onEviction(kv.key, kv.value)
 		}
 	}
 }
