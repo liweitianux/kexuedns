@@ -15,7 +15,9 @@ endif
 .PHONY: all
 all:
 	go mod tidy
+	go vet ./...
 	env CGO_ENABLED=0 go build $(BUILD_ARGS)
+	go test ./...
 
 all: ui/static/tailwindcss.js
 ui/static/tailwindcss.js:
