@@ -9,6 +9,7 @@ package critbit
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 )
 
@@ -235,12 +236,32 @@ func TestLongestPrefix2(t *testing.T) {
 		mKey   string
 		mValue int
 	}{
-		{key: "a", match: false},
-		{key: "abc", match: true, mKey: "abc", mValue: 1},
-		{key: "abc.def123", match: true, mKey: "abc.def", mValue: 2},
-		{key: "abc.def.ghi.12345", match: true, mKey: "abc.def.ghi", mValue: 3},
-		{key: "ABC", match: false},
+		{key: "a"},
+		{key: "abc"},
+		{key: "abcd"},
+		{key: "abc.def123"},
+		{key: "abc.def.ghi.12345"},
+		{key: "abd"},
+		{key: "ABC"},
 	}
+	// fill the reamining fields: match, mKey, mValue
+	for i := range items {
+		item := &items[i]
+		for _, kv := range kvlist {
+			if strings.HasPrefix(item.key, kv.key) {
+				if !item.match {
+					item.match = true
+					item.mKey = kv.key
+					item.mValue = kv.value
+				} else if len(item.mKey) < len(kv.key) {
+					item.mKey = kv.key
+					item.mValue = kv.value
+				}
+			}
+		}
+	}
+	t.Logf("items:\n%+v", items)
+
 	for _, item := range items {
 		mk, mv, ok := tree.LongestPrefix([]byte(item.key))
 		if item.match {
