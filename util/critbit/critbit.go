@@ -239,7 +239,7 @@ NewNode:
 // If the key already exists, Insert() will not modify the tree and
 // return false.
 func (t *Tree) Insert(key []byte, value any) bool {
-	_, ok := t.insert(key, value, false)
+	_, ok := t.insert(key, value, false /* replace */)
 	return ok
 }
 
@@ -247,7 +247,7 @@ func (t *Tree) Insert(key []byte, value any) bool {
 // Return (nil, true) if the key didn't exist yet; otherwise, return the old
 // value and false.
 func (t *Tree) Set(key []byte, value any) (any, bool) {
-	return t.insert(key, value, true)
+	return t.insert(key, value, true /* replace */)
 }
 
 // Delete the key (key) from the tree.
@@ -279,10 +279,11 @@ func (t *Tree) Delete(key []byte) (any, bool) {
 		return nil, false // key not exists
 	}
 
-	// Delete the nodes by updating the grandparent node.
 	if whereq == nil {
-		t.root = nil // tree only has one element
+		// tree only has one element
+		t.root = nil
 	} else {
+		// Update the grandparent node to remove both nodeE and nodeI.
 		*whereq = nodeI.children[1-direction]
 		if *whereq == nil {
 			panic("nodeI.children invalid")
@@ -292,39 +293,39 @@ func (t *Tree) Delete(key []byte) (any, bool) {
 	return nodeE.value, true
 }
 
-// Search for the longest prefix that matches the given string (s).
+// Search the longest prefix for the given key (key).
 // Return the key and value of the matched node, and a boolean indicating
 // whether there is a match.
-func (t *Tree) LongestPrefix(s []byte) ([]byte, any, bool) {
-	return t.longestPrefix(t.root, s)
+func (t *Tree) LongestPrefix(key []byte) ([]byte, any, bool) {
+	return t.longestPrefix(t.root, key)
 }
 
 // The keys in a crit-bit tree are lexicographically sorted, so the goal is to
-// find the key that's:
+// find the key that is:
 //   - the largest one of those lexicographically less than or equal to the
-//     given string (s);
-//   - the prefix of the given string (s).
+//     given key (key);
+//   - the prefix of the given key (key).
 //
 // It's possible to implement this without using recursion, but that would be
 // much more complicated.
-func (t *Tree) longestPrefix(node iNode, s []byte) ([]byte, any, bool) {
+func (t *Tree) longestPrefix(node iNode, key []byte) ([]byte, any, bool) {
 	if node == nil {
 		return nil, nil, false
 	}
 
 	switch n := node.(type) {
 	case *nodeExternal:
-		if bytes.HasPrefix(s, n.key) {
+		if bytes.HasPrefix(key, n.key) {
 			return n.key, n.value, true
 		}
 	case *nodeInternal:
-		direction := n.direction(s)
-		if k, v, ok := t.longestPrefix(n.children[direction], s); ok {
+		direction := n.direction(key)
+		if k, v, ok := t.longestPrefixR(n.children[direction], key); ok {
 			return k, v, ok
 		}
 		// Also find the left subtree that's lexicographically smaller.
 		if direction == 1 {
-			return t.longestPrefix(n.children[0], s)
+			return t.longestPrefixR(n.children[0], key)
 		}
 	}
 
@@ -386,7 +387,7 @@ func (t *Tree) WalkPrefixed(prefix []byte, fn WalkFn) bool {
 		nodeI := node.(*nodeInternal)
 		node = nodeI.children[nodeI.direction(prefix)]
 		// Since the crit-bit values are sorted, the wanted subtree can be
-		// detected by  checking for the crit-bit advancing beyond the length
+		// detected by checking for the crit-bit advancing beyond the length
 		// of the prefix.
 		if nodeI.index < len(prefix) {
 			top = node
