@@ -294,21 +294,71 @@ func (t *Tree) Delete(key []byte) (any, bool) {
 }
 
 // Search the longest prefix for the given key (key).
-// Return the key and value of the matched node, and a boolean indicating
-// whether there is a match.
-func (t *Tree) LongestPrefix(key []byte) ([]byte, any, bool) {
-	return t.longestPrefix(t.root, key)
-}
-
+//
 // The keys in a crit-bit tree are lexicographically sorted, so the goal is to
 // find the key that is:
 //   - the largest one of those lexicographically less than or equal to the
 //     given key (key);
 //   - the prefix of the given key (key).
 //
-// It's possible to implement this without using recursion, but that would be
-// much more complicated.
-func (t *Tree) longestPrefix(node iNode, key []byte) ([]byte, any, bool) {
+// Return the key and value of the matched node, and a boolean indicating
+// whether there is a match.
+//
+// Credit: Claude Sonnet 4 (via https://claude.ai/chat/)
+func (t *Tree) LongestPrefix(key []byte) ([]byte, any, bool) {
+	node := t.root
+	if node == nil {
+		return nil, nil, false // empty tree
+	}
+
+	var last *nodeExternal
+	for {
+		if node.kind() == nodeKindExternal {
+			// Check if this leaf is a prefix of the input key.
+			nodeE := node.(*nodeExternal)
+			if bytes.HasPrefix(key, nodeE.key) {
+				last = nodeE
+			}
+			break
+		}
+
+		nodeI := node.(*nodeInternal)
+		direction := nodeI.direction(key)
+
+		if direction == 1 {
+			// Before going right, check the left subtree (lexicographically
+			// smaller) for smaller prefixes.
+			// Find and check the rightmost leaf in the subtree.
+			node = nodeI.children[0] // left
+			for {
+				if node.kind() != nodeKindInternal {
+					break
+				}
+				nodeI := node.(*nodeInternal)
+				node = nodeI.children[1] // always right
+			}
+			nodeE := node.(*nodeExternal)
+			if bytes.HasPrefix(key, nodeE.key) {
+				last = nodeE
+			}
+		}
+
+		node = nodeI.children[direction]
+	}
+
+	if last != nil {
+		return last.key, last.value, true
+	} else {
+		return nil, nil, false
+	}
+}
+
+// NOTE: This is a recursive implementation.
+func (t *Tree) LongestPrefixR(key []byte) ([]byte, any, bool) {
+	return t.longestPrefixR(t.root, key)
+}
+
+func (t *Tree) longestPrefixR(node iNode, key []byte) ([]byte, any, bool) {
 	if node == nil {
 		return nil, nil, false
 	}
