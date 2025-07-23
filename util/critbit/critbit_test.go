@@ -205,10 +205,15 @@ func TestLongestPrefix1(t *testing.T) {
 
 	keys := []string{"", "a", "abc", "xyz", "123"}
 	for _, key := range keys {
-		mk, mv, ok := tree.LongestPrefix([]byte(key))
+		mk, mv, ok := tree.LongestPrefixR([]byte(key))
 		if !ok || string(mk) != "" || mv != 1 {
-			t.Errorf(`LongestPrefix(%q) = (%q, %v, %t); want ("", 1, true)`,
+			t.Errorf(`LongestPrefixR(%q) = (%q, %v, %t); want ("", 1, true)`,
 				key, string(mk), mv, ok)
+		}
+		mk2, mv2, ok2 := tree.LongestPrefix([]byte(key))
+		if !bytes.Equal(mk2, mk) || mv2 != mv || ok2 != ok {
+			t.Errorf(`LongestPrefix(%q) = (%q, %v, %t); want (%q, %v, %t)`,
+				key, string(mk2), mv2, ok2, string(mk), mv, ok)
 		}
 	}
 }
@@ -263,17 +268,22 @@ func TestLongestPrefix2(t *testing.T) {
 	t.Logf("items:\n%+v", items)
 
 	for _, item := range items {
-		mk, mv, ok := tree.LongestPrefix([]byte(item.key))
+		mk, mv, ok := tree.LongestPrefixR([]byte(item.key))
 		if item.match {
 			if !ok || string(mk) != item.mKey || mv != item.mValue {
-				t.Errorf(`LongestPrefix(%q) = (%q, %v, %t); want (%q, %v, true)`,
+				t.Errorf(`LongestPrefixR(%q) = (%q, %v, %t); want (%q, %v, true)`,
 					item.key, string(mk), mv, ok, item.mKey, item.mValue)
 			}
 		} else {
 			if ok || len(mk) != 0 || mv != nil {
-				t.Errorf(`LongestPrefix(%q) = (%q, %v, %t); want (nil, nil, false)`,
+				t.Errorf(`LongestPrefixR(%q) = (%q, %v, %t); want (nil, nil, false)`,
 					item.key, string(mk), mv, ok)
 			}
+		}
+		mk2, mv2, ok2 := tree.LongestPrefix([]byte(item.key))
+		if !bytes.Equal(mk2, mk) || mv2 != mv || ok2 != ok {
+			t.Errorf(`LongestPrefix(%q) = (%q, %v, %t); want (%q, %v, %t)`,
+				item.key, string(mk2), mv2, ok2, string(mk), mv, ok)
 		}
 	}
 }
