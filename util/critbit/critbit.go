@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MIT
 //
+// Copyright (c) 2024-2025 Aaron LI
+//
 // Crit-bit Tree
 //
 // References:
@@ -41,6 +43,7 @@ type iNode interface {
 }
 
 type nodeInternal struct {
+	// NOTE: both are non-nil in a tree.
 	children [2]iNode
 	// The index of the differing byte.
 	index int
@@ -224,6 +227,10 @@ NewNode:
 	newNodeI.children[direction] = *wherep
 	*wherep = newNodeI
 
+	if newNodeI.children[0] == nil || newNodeI.children[1] == nil {
+		panic("newNodeI.children invalid")
+	}
+
 	return nil, true // inserted
 }
 
@@ -277,6 +284,9 @@ func (t *Tree) Delete(key []byte) (any, bool) {
 		t.root = nil // tree only has one element
 	} else {
 		*whereq = nodeI.children[1-direction]
+		if *whereq == nil {
+			panic("nodeI.children invalid")
+		}
 	}
 
 	return nodeE.value, true
@@ -401,7 +411,8 @@ func (t *Tree) walkPrefixed(top iNode, prefix []byte, fn WalkFn) bool {
 	switch n := top.(type) {
 	case *nodeExternal:
 		if !bytes.HasPrefix(n.key, prefix) {
-			panic("unmatched node")
+			panic(fmt.Sprintf("wrongly matched node: key=%v, prefix=%v",
+				n.key, prefix))
 		}
 		return fn(n.key, n.value)
 	case *nodeInternal:
