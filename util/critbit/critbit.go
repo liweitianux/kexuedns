@@ -75,7 +75,7 @@ func (n *nodeExternal) kind() nodeKind {
 }
 
 func (n *nodeExternal) dump() string {
-	keystr := string(n.key)
+	keystr := fmt.Sprintf("%q", string(n.key))
 	for _, c := range n.key {
 		if !strconv.IsPrint(rune(c)) {
 			keystr = "0x" + hex.EncodeToString(n.key)
@@ -419,7 +419,7 @@ func (t *Tree) walkPrefixed(top iNode, prefix []byte, fn WalkFn) bool {
 // Print the whole tree for debugging.
 func (t *Tree) Dump(w io.Writer) {
 	if t.root == nil {
-		fmt.Fprintf(w, "(empty)")
+		fmt.Fprintf(w, "(empty)\n")
 		return
 	}
 
