@@ -9,6 +9,7 @@ package critbit
 
 import (
 	"bytes"
+	"math/rand"
 	"strings"
 	"testing"
 )
@@ -300,6 +301,111 @@ func TestLongestPrefix2(t *testing.T) {
 	}
 }
 
+func TestLongestPrefix3(t *testing.T) {
+	rand.Seed(42)
+
+	kvlist := make(
+		[]struct {
+			key   []byte
+			value int
+		},
+		10_000*5,
+	)
+	n := 0
+	for _, k := range generateKeys(10_000, 5, 10) {
+		kvlist[n].key = k
+		kvlist[n].value = n
+		n++
+	}
+	for _, k := range generateKeys(10_000, 10, 20) {
+		kvlist[n].key = k
+		kvlist[n].value = n
+		n++
+	}
+	for _, k := range generateKeys(10_000, 20, 40) {
+		kvlist[n].key = k
+		kvlist[n].value = n
+		n++
+	}
+	for _, k := range generateKeys(10_000, 40, 80) {
+		kvlist[n].key = k
+		kvlist[n].value = n
+		n++
+	}
+	for _, k := range generateKeys(10_000, 80, 160) {
+		kvlist[n].key = k
+		kvlist[n].value = n
+		n++
+	}
+
+	// Generate test cases.
+	items := make(
+		[]struct {
+			key    []byte
+			match  bool
+			mKey   []byte
+			mValue int
+		},
+		10000,
+	)
+	for i := range items {
+		if i%2 == 0 {
+			// prefix-based
+			prefix := kvlist[rand.Intn(len(kvlist))].key
+			items[i].key = append(prefix, randomKey(1, 20)...)
+		} else {
+			// random-generated
+			items[i].key = randomKey(10, 200)
+		}
+	}
+	// fill the reamining fields: match, mKey, mValue
+	for i := range items {
+		item := &items[i]
+		for _, kv := range kvlist {
+			if bytes.HasPrefix(item.key, kv.key) {
+				if !item.match {
+					item.match = true
+					item.mKey = kv.key
+					item.mValue = kv.value
+				} else if len(item.mKey) < len(kv.key) {
+					item.mKey = kv.key
+					item.mValue = kv.value
+				}
+			}
+		}
+	}
+
+	tree := &Tree{}
+
+	// Shuffle the kvlist to better test Insert().
+	rand.Shuffle(len(kvlist), func(i, j int) {
+		kvlist[i], kvlist[j] = kvlist[j], kvlist[i]
+	})
+	for _, kv := range kvlist {
+		tree.Insert(kv.key, kv.value)
+	}
+
+	for _, item := range items {
+		mk, mv, ok := tree.LongestPrefixR(item.key)
+		if item.match {
+			if !ok || !bytes.Equal(mk, item.mKey) || mv != item.mValue {
+				t.Errorf(`LongestPrefixR(%q) = (%q, %v, %t); want (%q, %v, true)`,
+					string(item.key), string(mk), mv, ok, string(item.mKey), item.mValue)
+			}
+		} else {
+			if ok || len(mk) != 0 || mv != nil {
+				t.Errorf(`LongestPrefixR(%q) = (%q, %v, %t); want (nil, nil, false)`,
+					string(item.key), string(mk), mv, ok)
+			}
+		}
+		mk2, mv2, ok2 := tree.LongestPrefix(item.key)
+		if !bytes.Equal(mk2, mk) || mv2 != mv || ok2 != ok {
+			t.Errorf(`LongestPrefix(%q) = (%q, %v, %t); want (%q, %v, %t)`,
+				string(item.key), string(mk2), mv2, ok2, string(mk), mv, ok)
+		}
+	}
+}
+
 func TestWalk1(t *testing.T) {
 	tree := &Tree{}
 	kvlist := []struct {
@@ -468,4 +574,26 @@ func TestDump1(t *testing.T) {
 	buf.Reset()
 	tree.Dump(buf)
 	t.Logf("dump:\n%s", buf.String())
+}
+
+// ----------------------------------------------------------
+
+const randomCharset = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ._-="
+
+func randomKey(minLen, maxLen int) []byte {
+	length := rand.Intn(maxLen-minLen+1) + minLen
+	key := make([]byte, length)
+	n := len(randomCharset)
+	for i := 0; i < length; i++ {
+		key[i] = randomCharset[rand.Intn(n)]
+	}
+	return key
+}
+
+func generateKeys(n, minLen, maxLen int) [][]byte {
+	keys := make([][]byte, n)
+	for i := 0; i < n; i++ {
+		keys[i] = randomKey(minLen, maxLen)
+	}
+	return keys
 }
