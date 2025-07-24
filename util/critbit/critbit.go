@@ -359,10 +359,6 @@ func (t *Tree) LongestPrefixR(key []byte) ([]byte, any, bool) {
 }
 
 func (t *Tree) longestPrefixR(node iNode, key []byte) ([]byte, any, bool) {
-	if node == nil {
-		return nil, nil, false
-	}
-
 	switch n := node.(type) {
 	case *nodeExternal:
 		if bytes.HasPrefix(key, n.key) {
@@ -392,14 +388,13 @@ type WalkFn func(key []byte, value any) bool
 // Return true if the walk finished without being terminated by the callback
 // function (i.e., returned false); otherwise false.
 func (t *Tree) Walk(fn WalkFn) bool {
+	if t.root == nil {
+		return true // empty tree
+	}
 	return t.walk(t.root, fn)
 }
 
 func (t *Tree) walk(node iNode, fn WalkFn) bool {
-	if node == nil {
-		return true // continue
-	}
-
 	switch n := node.(type) {
 	case *nodeExternal:
 		return fn(n.key, n.value)
@@ -455,10 +450,6 @@ func (t *Tree) WalkPrefixed(prefix []byte, fn WalkFn) bool {
 }
 
 func (t *Tree) walkPrefixed(top iNode, prefix []byte, fn WalkFn) bool {
-	if top == nil {
-		return true // continue
-	}
-
 	switch n := top.(type) {
 	case *nodeExternal:
 		if !bytes.HasPrefix(n.key, prefix) {
@@ -489,10 +480,6 @@ func (t *Tree) Dump(w io.Writer) {
 }
 
 func (t *Tree) dump(w io.Writer, node iNode, right bool, prefix string) {
-	if node == nil {
-		return
-	}
-
 	mypreifx := prefix
 	if right {
 		mypreifx = prefix[:len(prefix)-1] + "`"
