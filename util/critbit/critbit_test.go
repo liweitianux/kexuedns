@@ -578,6 +578,90 @@ func TestDump1(t *testing.T) {
 
 // ----------------------------------------------------------
 
+func BenchmarkLongestPrefix_ShortKey_ShortQuery(b *testing.B) {
+	benchmarkLongestPrefix(b, 5, 15, 5, 15)
+}
+
+func BenchmarkLongestPrefix_ShortKey_MediumQuery(b *testing.B) {
+	benchmarkLongestPrefix(b, 5, 15, 20, 50)
+}
+
+func BenchmarkLongestPrefix_ShortKey_LongQuery(b *testing.B) {
+	benchmarkLongestPrefix(b, 5, 15, 100, 200)
+}
+
+func BenchmarkLongestPrefix_MediumKey_ShortQuery(b *testing.B) {
+	benchmarkLongestPrefix(b, 20, 50, 5, 15)
+}
+
+func BenchmarkLongestPrefix_MediumKey_MediumQuery(b *testing.B) {
+	benchmarkLongestPrefix(b, 20, 50, 20, 50)
+}
+
+func BenchmarkLongestPrefix_MediumKey_LongQuery(b *testing.B) {
+	benchmarkLongestPrefix(b, 20, 50, 100, 200)
+}
+
+func BenchmarkLongestPrefix_LongKey_ShortQuery(b *testing.B) {
+	benchmarkLongestPrefix(b, 100, 200, 5, 15)
+}
+
+func BenchmarkLongestPrefix_LongKey_MediumQuery(b *testing.B) {
+	benchmarkLongestPrefix(b, 100, 200, 20, 50)
+}
+
+func BenchmarkLongestPrefix_LongKey_LongQuery(b *testing.B) {
+	benchmarkLongestPrefix(b, 100, 200, 100, 200)
+}
+
+func benchmarkLongestPrefix(b *testing.B, kmin, kmax, qmin, qmax int) {
+	rand.Seed(42)
+
+	keys := generateKeys(10_000, kmin, kmax)
+	queries := make([][]byte, 1000)
+	for i := range queries {
+		if i%2 == 0 {
+			// prefix-based
+			prefix := keys[rand.Intn(len(keys))]
+			queries[i] = append(prefix, randomKey(1, (qmin+qmax)/2)...)
+		} else {
+			// random-generated
+			queries[i] = randomKey(qmin, qmax)
+		}
+	}
+
+	tree := &Tree{}
+	for i, k := range keys {
+		tree.Insert(k, i)
+	}
+
+	b.Run("iteration", func(b *testing.B) {
+		n := len(queries)
+		// burn in
+		for i := 0; i < n*3; i++ {
+			tree.LongestPrefix(queries[i%n])
+		}
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			tree.LongestPrefix(queries[i%n])
+		}
+	})
+
+	b.Run("recursion", func(b *testing.B) {
+		n := len(queries)
+		// burn in
+		for i := 0; i < n*3; i++ {
+			tree.LongestPrefixR(queries[i%n])
+		}
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			tree.LongestPrefixR(queries[i%n])
+		}
+	})
+}
+
+// ----------------------------------------------------------
+
 const randomCharset = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ._-="
 
 func randomKey(minLen, maxLen int) []byte {
