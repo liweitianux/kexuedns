@@ -163,6 +163,18 @@ func TestSet1(t *testing.T) {
 
 func TestDelete1(t *testing.T) {
 	tree := &Tree{}
+
+	key, value := "hello", 123
+	tree.Insert([]byte(key), value)
+
+	v, ok := tree.Delete([]byte(key))
+	if !ok || v != value {
+		t.Errorf(`Delete(%q) = (%d, %t); want (%d, true)`, key, v, ok, value)
+	}
+}
+
+func TestDelete2(t *testing.T) {
+	tree := &Tree{}
 	kvlist := []struct {
 		key   string
 		value int
