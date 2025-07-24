@@ -31,15 +31,8 @@ import (
 	"strconv"
 )
 
-type nodeKind int
-
-const (
-	nodeKindInternal nodeKind = iota
-	nodeKindExternal
-)
-
 type iNode interface {
-	kind() nodeKind
+	isInternal() bool
 }
 
 type nodeInternal struct {
@@ -52,8 +45,8 @@ type nodeInternal struct {
 	otherBits byte
 }
 
-func (n *nodeInternal) kind() nodeKind {
-	return nodeKindInternal
+func (n *nodeInternal) isInternal() bool {
+	return true
 }
 
 func (n *nodeInternal) direction(key []byte) int {
@@ -73,8 +66,8 @@ type nodeExternal struct {
 	value any
 }
 
-func (n *nodeExternal) kind() nodeKind {
-	return nodeKindExternal
+func (n *nodeExternal) isInternal() bool {
+	return false
 }
 
 func (n *nodeExternal) dump() string {
@@ -107,7 +100,7 @@ func (t *Tree) Get(key []byte) (any, bool) {
 
 	// Walk the tree for the best memeber.
 	for {
-		if node.kind() != nodeKindInternal {
+		if !node.isInternal() {
 			break
 		}
 		nodeI := node.(*nodeInternal)
@@ -141,7 +134,7 @@ func (t *Tree) insert(key []byte, value any, replace bool) (any, bool) {
 
 	// Walk the tree for the best memeber.
 	for {
-		if node.kind() != nodeKindInternal {
+		if !node.isInternal() {
 			break
 		}
 		nodeI := node.(*nodeInternal)
@@ -208,7 +201,7 @@ NewNode:
 	wherep := &t.root
 	for {
 		node := *wherep
-		if node.kind() != nodeKindInternal {
+		if !node.isInternal() {
 			break
 		}
 
@@ -264,7 +257,7 @@ func (t *Tree) Delete(key []byte) (any, bool) {
 	var direction int
 	for {
 		node := *wherep
-		if node.kind() != nodeKindInternal {
+		if !node.isInternal() {
 			break
 		}
 
@@ -313,7 +306,7 @@ func (t *Tree) LongestPrefix(key []byte) ([]byte, any, bool) {
 
 	var last *nodeExternal
 	for {
-		if node.kind() == nodeKindExternal {
+		if !node.isInternal() {
 			// Check if this leaf is a prefix of the input key.
 			nodeE := node.(*nodeExternal)
 			if bytes.HasPrefix(key, nodeE.key) {
@@ -331,7 +324,7 @@ func (t *Tree) LongestPrefix(key []byte) ([]byte, any, bool) {
 			// Find and check the rightmost leaf in the subtree.
 			node = nodeI.children[0] // left
 			for {
-				if node.kind() != nodeKindInternal {
+				if !node.isInternal() {
 					break
 				}
 				nodeI := node.(*nodeInternal)
@@ -426,7 +419,7 @@ func (t *Tree) WalkPrefixed(prefix []byte, fn WalkFn) bool {
 	// elements matching the given prefix.
 	top := node
 	for {
-		if node.kind() != nodeKindInternal {
+		if !node.isInternal() {
 			break
 		}
 		nodeI := node.(*nodeInternal)
