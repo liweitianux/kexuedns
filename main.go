@@ -43,7 +43,7 @@ func main() {
 			strings.ToLower(progname)))
 	configInit := flag.Bool("config-init", false, "initialize with the default configs")
 	httpAddr := flag.String("http-addr", "127.0.0.1", "HTTP webui address")
-	httpPort := flag.Int("http-port", 8053, "HTTP webui port")
+	httpPort := flag.Uint("http-port", 5580, "HTTP webui port")
 	showVersion := flag.Bool("version", false, "show version")
 	flag.Parse()
 
