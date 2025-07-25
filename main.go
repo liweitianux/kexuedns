@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/pprof"
+	"net/netip"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -83,6 +84,25 @@ func main() {
 		os.Exit(1)
 	}
 
+	addr, err := netip.ParseAddr(*httpAddr)
+	if err != nil {
+		log.Fatalf("invalid http-addr: %s, error: %v", *httpAddr, err)
+	}
+
+	addrport := netip.AddrPortFrom(addr, uint16(*httpPort))
+	baseURL := "http://" + addrport.String()
+	if addr.IsUnspecified() {
+		log.Warnf("webui server is public accessible! (addr=%s)", addr.String())
+
+		addr := addr
+		if addr.Is4() {
+			addr = netip.AddrFrom4([4]byte{127, 0, 0, 1})
+		} else {
+			addr = netip.IPv6Loopback()
+		}
+		baseURL = "http://" + netip.AddrPortFrom(addr, uint16(*httpPort)).String()
+	}
+
 	conf := config.Get()
 	addr := fmt.Sprintf("%s:%d", conf.ListenAddr, conf.ListenPort)
 	forwarder := dns.NewForwarder(addr)
@@ -118,19 +138,18 @@ func main() {
 		mux.HandleFunc(path+"profile", pprof.Profile)
 		mux.HandleFunc(path+"symbol", pprof.Symbol)
 		mux.HandleFunc(path+"trace", pprof.Trace)
-		log.Infof("enabled debug pprof at: http://%s:%d%s",
-			*httpAddr, *httpPort, path)
+		log.Infof("enabled debug pprof at: %s%s", baseURL, path)
 	}
 
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
 	server := &http.Server{
-		Addr:    fmt.Sprintf("%s:%d", *httpAddr, *httpPort),
+		Addr:    addrport.String(),
 		Handler: mux,
 	}
 	go func() {
 		defer wg.Done()
-		log.Infof("HTTP webui: http://%s", server.Addr)
+		log.Infof("access webui: %s", baseURL)
 		err := server.ListenAndServe()
 		if !errors.Is(err, http.ErrServerClosed) {
 			log.Fatalf("webui server failed: %v", err)
