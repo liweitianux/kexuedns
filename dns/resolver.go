@@ -36,7 +36,7 @@ const (
 type Resolver struct {
 	name      string // name to identify in log messages
 	ip        netip.Addr
-	port      int
+	port      uint16
 	hostname  string // name to verify the TLS certificate
 	client    *tls.Conn
 	responses chan RawMsg
@@ -45,7 +45,7 @@ type Resolver struct {
 	wg        *sync.WaitGroup
 }
 
-func NewResolver(ip string, port int, hostname string) (*Resolver, error) {
+func NewResolver(ip string, port uint16, hostname string) (*Resolver, error) {
 	addr, err := netip.ParseAddr(ip)
 	if err != nil {
 		log.Errorf("invalid IP address (%s): %v", ip, addr)
@@ -165,7 +165,7 @@ func (r *Resolver) connect() error {
 
 	raddr := net.TCPAddr{
 		IP:   net.IP(r.ip.AsSlice()),
-		Port: r.port,
+		Port: int(r.port),
 	}
 	tconn, err := net.DialTCP("tcp", nil, &raddr)
 	if err != nil {

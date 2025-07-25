@@ -31,7 +31,7 @@ type Config struct {
 type ConfigFile struct {
 	// The listening address and port of the DNS service (UDP).
 	ListenAddr string `json:"listen_addr"`
-	ListenPort int    `json:"listen_port"`
+	ListenPort uint16 `json:"listen_port"`
 	// File containing the trusted CA certificates
 	// (e.g., /etc/ssl/certs/ca-certificates.crt)
 	// If empty, then use the system's trusted CA pool.
@@ -45,7 +45,7 @@ func (cf *ConfigFile) setDefaults() {
 		cf.ListenAddr = "127.0.0.1"
 	}
 	if cf.ListenPort == 0 {
-		cf.ListenPort = 5553
+		cf.ListenPort = uint16(5553)
 	}
 }
 
@@ -53,7 +53,7 @@ type Resolver struct {
 	// IPv4 or IPv6 address
 	IP string `json:"ip"`
 	// DoT port; default 853
-	Port int `json:"port"`
+	Port uint16 `json:"port"`
 	// Hostname to verify the TLS certificate
 	Hostname string `json:"hostname"`
 }
