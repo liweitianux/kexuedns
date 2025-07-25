@@ -6,10 +6,11 @@
 package main
 
 import (
-	"context"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"net/http/pprof"
 	"net/netip"
@@ -19,11 +20,9 @@ import (
 	"strings"
 	"sync"
 	"syscall"
-	"time"
 
 	"kexuedns/api"
 	"kexuedns/config"
-	"kexuedns/dns"
 	"kexuedns/log"
 	"kexuedns/ui"
 )
@@ -103,28 +102,7 @@ func main() {
 		baseURL = "http://" + netip.AddrPortFrom(addr, uint16(*httpPort)).String()
 	}
 
-	conf := config.Get()
-	addr := fmt.Sprintf("%s:%d", conf.ListenAddr, conf.ListenPort)
-	forwarder := dns.NewForwarder(addr)
-
-	go func() {
-		if r := conf.Resolver; r != nil {
-			resolver, err := dns.NewResolver(r.IP, r.Port, r.Hostname)
-			if err != nil {
-				log.Warnf("failed to create resolver with config: %+v, error: %v",
-					r, err)
-			} else {
-				forwarder.SetResolver(resolver)
-				log.Infof("added resolver: %+v", r)
-			}
-		}
-
-		if err := forwarder.Serve(); err != nil {
-			panic(err)
-		}
-	}()
-
-	apiHandler := api.NewApiHandler(forwarder)
+	apiHandler := api.NewApiHandler()
 
 	mux := http.NewServeMux()
 	mux.Handle("/api/", http.StripPrefix("/api", apiHandler))
@@ -141,20 +119,36 @@ func main() {
 		log.Infof("enabled debug pprof at: %s%s", baseURL, path)
 	}
 
+	listener, err := net.Listen("tcp", addrport.String())
+	if err != nil {
+		log.Fatalf("failed to listen at: %s, error: %v", addrport.String(), err)
+	}
+
 	wg := &sync.WaitGroup{}
 	wg.Add(1)
-	server := &http.Server{
-		Addr:    addrport.String(),
-		Handler: mux,
-	}
+	server := &http.Server{Handler: mux}
 	go func() {
 		defer wg.Done()
 		log.Infof("access webui: %s", baseURL)
-		err := server.ListenAndServe()
+		err := server.Serve(listener)
 		if !errors.Is(err, http.ErrServerClosed) {
 			log.Fatalf("webui server failed: %v", err)
 		}
 	}()
+
+	// Start the forwarder.
+	// Do this after listen, so this request would wait for the server to
+	// accept instead of simply failing if it races aganist the server listen.
+	resp, err := http.Post(baseURL+"/api/start", "", nil)
+	if err != nil {
+		log.Warnf("failed to request: %v", err)
+	} else {
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode >= 400 {
+			log.Warnf("failed to start forwarder: %s", body)
+		}
+	}
 
 	// Set up signal capturing.
 	stop := make(chan os.Signal, 1)
@@ -162,11 +156,9 @@ func main() {
 	<-stop
 
 	// Clean up.
-	forwarder.Stop()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := server.Shutdown(ctx); err != nil {
-		log.Errorf("failed to shutdown the webui server: %v", err)
+	_, _ = http.Post(baseURL+"/api/stop", "", nil)
+	if err := server.Close(); err != nil {
+		log.Errorf("failed to close the webui server: %v", err)
 	}
 
 	wg.Wait()
