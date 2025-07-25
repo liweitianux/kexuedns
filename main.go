@@ -49,7 +49,7 @@ func main() {
 
 	if *showVersion {
 		fmt.Printf("%s %s (%s)\n", progname, version, versionDate)
-		os.Exit(0)
+		return
 	}
 
 	config.SetVersion(&config.VersionInfo{
@@ -75,7 +75,7 @@ func main() {
 			fmt.Printf("ERROR: failed to initialize config: %v\n", err)
 			os.Exit(1)
 		}
-		os.Exit(0)
+		return
 	}
 
 	if err := config.Load(*configDir); err != nil {
