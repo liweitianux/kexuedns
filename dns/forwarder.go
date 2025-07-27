@@ -20,6 +20,7 @@ import (
 
 const (
 	maxQuerySize = 1024 // bytes
+	minQuerySize = 12   // bytes (header length)
 
 	queryTimeout   = 5 * time.Second
 	sessionTimeout = 10 * time.Second
@@ -106,6 +107,10 @@ func (f *Forwarder) Serve(pc net.PacketConn) {
 				return
 			}
 			log.Warnf("failed to read packet: %v", err)
+			continue
+		}
+		if n <= minQuerySize {
+			log.Debugf("malformatted query: n=%d", n)
 			continue
 		}
 
