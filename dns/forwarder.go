@@ -19,8 +19,8 @@ import (
 )
 
 const (
-	maxQuerySize = 1024 // bytes
-	minQuerySize = 12   // bytes (header length)
+	maxQuerySize = 512 // bytes
+	minQuerySize = 12  // bytes (header length)
 
 	queryTimeout   = 5 * time.Second
 	sessionTimeout = 10 * time.Second
@@ -98,8 +98,8 @@ func (f *Forwarder) Serve(pc net.PacketConn) {
 	f.wg.Add(1)
 	go f.receive()
 
+	buf := make([]byte, maxQuerySize)
 	for {
-		buf := make([]byte, maxQuerySize)
 		n, addr, err := pc.ReadFrom(buf)
 		if err != nil {
 			if errors.Is(err, net.ErrClosed) {
@@ -114,19 +114,21 @@ func (f *Forwarder) Serve(pc net.PacketConn) {
 			continue
 		}
 
-		go f.handle(pc, addr, buf[:n])
+		data := make([]byte, n)
+		copy(data, buf[:n])
+		go f.handle(pc, addr, data)
 	}
 }
 
-func (f *Forwarder) handle(pc net.PacketConn, addr net.Addr, buf []byte) {
-	resp, err := f.query(addr, buf)
+func (f *Forwarder) handle(pc net.PacketConn, addr net.Addr, data []byte) {
+	resp, err := f.query(addr, data)
 	if errors.Is(err, errQueryInvalid) {
 		// Unable to make a sensible reply; just drop it.
 		return
 	}
 	if err != nil {
 		// Reply with ServFail.
-		resp = buf
+		resp = data
 		resp[2] |= 0x80 // Set QR bit
 		resp[3] |= 0x02 // Set RCode to ServFail
 	}
