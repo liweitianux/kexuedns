@@ -43,6 +43,7 @@ type Resolver struct {
 	reading   bool
 	receiving bool
 	wg        *sync.WaitGroup
+	mutex     sync.Mutex
 }
 
 func NewResolver(ip string, port uint16, hostname string) (*Resolver, error) {
@@ -148,6 +149,9 @@ func (r *Resolver) Close() {
 }
 
 func (r *Resolver) disconnect() {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+
 	if r.client == nil {
 		return
 	}
@@ -159,6 +163,9 @@ func (r *Resolver) disconnect() {
 
 // Connect to the resolver and perform TLS handshake.
 func (r *Resolver) connect() error {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+
 	if r.client != nil {
 		return nil
 	}
