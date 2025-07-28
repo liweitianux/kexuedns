@@ -5,10 +5,6 @@ LDFLAGS+=	-X main.version=$(VERSION) \
 		-X main.versionDate=$(VERSION_DATE)
 BUILD_ARGS+=	-v -trimpath -ldflags "$(LDFLAGS)"
 
-ifneq (,$(wildcard ./vendor/modules.txt))
-BUILD_ARGS+=	-mod vendor
-endif
-
 # without debug
 # LDFLAGS+= -s -w
 
