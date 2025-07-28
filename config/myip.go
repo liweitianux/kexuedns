@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 //
-// Configuration management.
+// Copyright (c) 2024 Aaron LI
+//
+// Configuration management - My public IPs
 //
 
 package config

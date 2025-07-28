@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MIT
 //
+// Copyright (c) 2024 Aaron LI
+//
 // DNS Trie based upon Crit-bit Tree
 //
 

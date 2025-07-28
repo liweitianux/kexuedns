@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MIT
 //
+// Copyright (c) 2024-2025 Aaron LI
+//
 // Kexue DNS - DNS resovling in a scientific way.
 //
 

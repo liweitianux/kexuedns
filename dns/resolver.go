@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MIT
 //
+// Copyright (c) 2024-2025 Aaron LI
+//
 // Resolvers to process the forwarded queries.
 //
 

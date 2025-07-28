@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // SPDX-License-Identifier: MIT
 //
+// Copyright (c) 2024 Aaron LI
+//
 // Simple log facility.
 //
 // Derived from: https://github.com/DragonFlyBSD/mirrorselect (common/log.go)

@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MIT
 //
+// Copyright (c) 2024 Aaron LI
+//
 // Embed assets of the webui.
 //
 
