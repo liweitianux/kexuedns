@@ -7,6 +7,7 @@ package dns
 
 import (
 	"crypto/tls"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -81,8 +82,7 @@ func NewResolver(ip string, port uint16, hostname string) (*Resolver, error) {
 func (r *Resolver) Query(msg RawMsg) error {
 	l := len(msg)
 	buf := make([]byte, 2+l)
-	buf[0] = byte(l >> 8)
-	buf[1] = byte(l)
+	binary.BigEndian.PutUint16(buf, uint16(l))
 	copy(buf[2:], msg)
 
 	retrying := false
@@ -246,7 +246,7 @@ func (r *Resolver) read() {
 		}
 
 		// read response content
-		l := int(lbuf[0])<<8 | int(lbuf[1])
+		l := binary.BigEndian.Uint16(lbuf)
 		mbuf := make([]byte, l)
 		if _, err := io.ReadFull(r.client, mbuf); err != nil {
 			log.Errorf("[%s] failed to read response content: %v", r.name, err)
