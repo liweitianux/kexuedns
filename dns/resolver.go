@@ -9,7 +9,6 @@ import (
 	"crypto/tls"
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"io"
 	"net"
 	"net/netip"
@@ -58,11 +57,8 @@ func NewResolver(ip string, port uint16, hostname string) (*Resolver, error) {
 	}
 	name := hostname
 	if name == "" {
-		if addr.Is4() {
-			name = fmt.Sprintf("%s:%d", addr.String(), port)
-		} else {
-			name = fmt.Sprintf("[%s]:%d", addr.String(), port)
-		}
+		addrport := netip.AddrPortFrom(addr, port)
+		name = addrport.String()
 	}
 	r := &Resolver{
 		name:      name,
