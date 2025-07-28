@@ -44,18 +44,13 @@ type Forwarder struct {
 }
 
 type Session struct {
-	client   net.Addr
-	response chan []byte
+	client net.Addr
+	query  []byte // original query packet
 }
 
 func NewForwarder() *Forwarder {
-	sessions := ttlcache.New(sessionTimeout, 0, func(key string, value any) {
-		s := value.(*Session)
-		close(s.response)
-		log.Debugf("cleaned expired session [%s]", key)
-	})
 	return &Forwarder{
-		sessions: sessions,
+		sessions: ttlcache.New(sessionTimeout, 0, nil),
 		wg:       &sync.WaitGroup{},
 	}
 }
@@ -115,32 +110,44 @@ func (f *Forwarder) Serve(pc net.PacketConn) {
 
 		data := make([]byte, n)
 		copy(data, buf[:n])
-		go f.handle(pc, addr, data)
+		go f.handle(data, addr)
 	}
 }
 
-func (f *Forwarder) handle(pc net.PacketConn, addr net.Addr, data []byte) {
-	resp, err := f.query(addr, data)
-	if errors.Is(err, errQueryInvalid) {
-		// Unable to make a sensible reply; just drop it.
-		return
-	}
-	if err != nil {
-		// Reply with ServFail.
-		resp = data
-		resp[2] |= 0x80 // Set QR bit
-		resp[3] |= 0x02 // Set RCode to ServFail
-	}
-	_, err = pc.WriteTo(resp, addr)
-	if err != nil {
-		log.Warnf("failed to write packet: %v", err)
-	}
-}
-
-func (f *Forwarder) query(client net.Addr, msg []byte) ([]byte, error) {
+func (f *Forwarder) handle(msg []byte, client net.Addr) {
 	query, err := dnsmsg.NewQueryMsg(msg)
 	if err != nil {
-		return nil, errQueryInvalid
+		log.Debugf("invalid query packet: %v", err)
+		return // Unable to make a sensible reply; just drop it.
+	}
+
+	key := query.SessionKey()
+	session := &Session{
+		client: client,
+		query:  msg,
+	}
+	f.sessions.Set(key, session, ttlcache.DefaultTTL)
+	log.Debugf("added session with key: %s", key)
+
+	if err := f.query(query); err != nil {
+		f.sessions.Delete(key)
+		f.reply(session, nil)
+		return
+	}
+
+	time.AfterFunc(queryTimeout, func() {
+		log.Infof("session [%s] timed out", key)
+		f.sessions.Delete(key)
+		f.reply(session, nil)
+	})
+}
+
+// Query the backend resolver.
+// NOTE: The response is handled asynchronously by receive().
+func (f *Forwarder) query(query *dnsmsg.QueryMsg) error {
+	if f.resolver == nil {
+		log.Debugf("no resolver available")
+		return errResolverNotFound
 	}
 
 	myIP := config.GetMyIP()
@@ -158,41 +165,16 @@ func (f *Forwarder) query(client net.Addr, msg []byte) ([]byte, error) {
 	}
 	log.Debugf("query: %+v", query)
 
-	msg, err = query.Build()
+	msg, err := query.Build()
 	if err != nil {
 		log.Errorf("failed to build query: %v", err)
-		return nil, err
+		return err
 	}
 
-	if f.resolver == nil {
-		log.Debugf("no resolver available")
-		return nil, errResolverNotFound
-	}
-
-	key := query.SessionKey()
-	session := &Session{
-		client:   client,
-		response: make(chan []byte, 1),
-	}
-	f.sessions.Set(key, session, ttlcache.DefaultTTL)
-	log.Debugf("added session with key: %s", key)
-
-	if err := f.resolver.Query(msg); err != nil {
-		f.sessions.Delete(key)
-		return nil, err
-	}
-
-	select {
-	case resp := <-session.response:
-		log.Debugf("session [%s] succeeded (len=%d)", key, len(resp))
-		return resp, nil
-	case <-time.After(queryTimeout):
-		log.Infof("session [%s] timed out", key)
-		f.sessions.Delete(key)
-		return nil, errQueryTimeout
-	}
+	return f.resolver.Query(msg)
 }
 
+// Receive responses from the backend resolver and dispatch to clients.
 func (f *Forwarder) receive() {
 	go f.resolver.Receive(f.responses)
 
@@ -209,16 +191,27 @@ func (f *Forwarder) receive() {
 			continue
 		}
 
-		if v, ok := f.sessions.Pop(key); !ok {
-			log.Warnf("session [%s] not found or expired", key)
+		if v, ok := f.sessions.Pop(key); ok {
+			f.reply(v.(*Session), resp)
 		} else {
-			session := v.(*Session)
-			session.response <- resp
-			// OK to close the channel since it's buffered
-			// (i.e., created with size).
-			close(session.response)
+			log.Warnf("session [%s] not found or expired", key)
 		}
 	}
 
 	f.wg.Done()
+}
+
+// Reply the client with the response.
+func (f *Forwarder) reply(session *Session, resp []byte) {
+	if len(resp) == 0 {
+		// Reply with ServFail.
+		resp = session.query
+		resp[2] |= 0x80 // Set QR bit
+		resp[3] |= 0x02 // Set RCode to ServFail
+	}
+
+	_, err := f.conn.WriteTo(resp, session.client)
+	if err != nil {
+		log.Warnf("failed to write packet: %v", err)
+	}
 }
