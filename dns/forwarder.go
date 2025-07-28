@@ -168,9 +168,6 @@ func (f *Forwarder) query(client net.Addr, msg []byte) ([]byte, error) {
 		log.Debugf("no resolver available")
 		return nil, errResolverNotFound
 	}
-	if err := f.resolver.Query(msg); err != nil {
-		return nil, err
-	}
 
 	key := query.SessionKey()
 	session := &Session{
@@ -179,6 +176,11 @@ func (f *Forwarder) query(client net.Addr, msg []byte) ([]byte, error) {
 	}
 	f.sessions.Set(key, session, ttlcache.DefaultTTL)
 	log.Debugf("added session with key: %s", key)
+
+	if err := f.resolver.Query(msg); err != nil {
+		f.sessions.Delete(key)
+		return nil, err
+	}
 
 	select {
 	case resp := <-session.response:
