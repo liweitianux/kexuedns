@@ -18,6 +18,7 @@ import (
 
 	"kexuedns/config"
 	"kexuedns/log"
+	"kexuedns/util/dnsmsg"
 )
 
 const (
@@ -39,7 +40,7 @@ type Resolver struct {
 	port      uint16
 	hostname  string // name to verify the TLS certificate
 	client    *tls.Conn
-	responses chan RawMsg
+	responses chan dnsmsg.RawMsg
 	reading   bool
 	receiving bool
 	wg        *sync.WaitGroup
@@ -65,7 +66,7 @@ func NewResolver(ip string, port uint16, hostname string) (*Resolver, error) {
 		ip:        addr,
 		port:      port,
 		hostname:  hostname,
-		responses: make(chan RawMsg, channelSize),
+		responses: make(chan dnsmsg.RawMsg, channelSize),
 		wg:        &sync.WaitGroup{},
 	}
 	// Perform the connection to catch the possible errors early.
@@ -75,7 +76,7 @@ func NewResolver(ip string, port uint16, hostname string) (*Resolver, error) {
 	return r, nil
 }
 
-func (r *Resolver) Query(msg RawMsg) error {
+func (r *Resolver) Query(msg dnsmsg.RawMsg) error {
 	l := len(msg)
 	buf := make([]byte, 2+l)
 	binary.BigEndian.PutUint16(buf, uint16(l))
@@ -114,7 +115,7 @@ Lretry:
 	return nil
 }
 
-func (r *Resolver) Receive(ch chan RawMsg) {
+func (r *Resolver) Receive(ch chan dnsmsg.RawMsg) {
 	if r.receiving {
 		panic("already started receiving")
 	}
@@ -250,7 +251,7 @@ func (r *Resolver) read() {
 		}
 
 		log.Debugf("[%s] received response (len=2+%d)", r.name, l)
-		r.responses <- RawMsg(mbuf)
+		r.responses <- dnsmsg.RawMsg(mbuf)
 	}
 
 	r.reading = false

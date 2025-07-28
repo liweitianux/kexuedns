@@ -3,7 +3,7 @@
 // DNS message parsing and manipulations.
 //
 
-package dns
+package dnsmsg
 
 import (
 	"encoding/binary"
@@ -30,17 +30,17 @@ const (
 )
 
 var (
-	errInvalidIP = errors.New("invalid/unspecified IP address")
+	ErrInvalidIP = errors.New("invalid/unspecified IP address")
 )
 
 // Session info to track and distinguish one specific query and response.
-type QuerySession struct {
+type querySession struct {
 	ID   uint16
 	Type dnsmessage.Type
 	Name string
 }
 
-func (s *QuerySession) String() string {
+func (s *querySession) String() string {
 	fields := []string{
 		strconv.Itoa(int(s.ID)),
 		s.Type.String(),
@@ -68,7 +68,7 @@ func (m RawMsg) SessionKey() (string, error) {
 		return "", err
 	}
 
-	s := &QuerySession{
+	s := &querySession{
 		ID:   header.ID,
 		Type: question.Type,
 		Name: question.Name.String(),
@@ -163,7 +163,7 @@ func (m *QueryMsg) QName() string {
 
 // Compose the session key.
 func (m *QueryMsg) SessionKey() string {
-	s := &QuerySession{
+	s := &querySession{
 		ID:   m.Header.ID,
 		Type: m.QType(),
 		Name: m.QName(),
@@ -174,7 +174,7 @@ func (m *QueryMsg) SessionKey() string {
 func (m *QueryMsg) SetEdnsSubnet(ip netip.Addr, prefixLen int) error {
 	if !ip.IsValid() || ip.IsUnspecified() {
 		log.Errorf("invalid/unspecified IP address: %v", ip.String())
-		return errInvalidIP
+		return ErrInvalidIP
 	}
 
 	rh := dnsmessage.ResourceHeader{}

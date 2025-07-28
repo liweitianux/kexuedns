@@ -15,6 +15,7 @@ import (
 
 	"kexuedns/config"
 	"kexuedns/log"
+	"kexuedns/util/dnsmsg"
 	"kexuedns/util/ttlcache"
 )
 
@@ -36,17 +37,15 @@ var (
 // TODO: cache
 type Forwarder struct {
 	resolver  *Resolver // TODO: => resolver router
-	responses chan RawMsg
-	// key: "QID:QType:QName"
-	// value: *Session
-	sessions *ttlcache.Cache
-	conn     net.PacketConn
-	wg       *sync.WaitGroup
+	responses chan dnsmsg.RawMsg
+	sessions  *ttlcache.Cache // dnsmsg.SessionKey() => *Session
+	conn      net.PacketConn
+	wg        *sync.WaitGroup
 }
 
 type Session struct {
 	client   net.Addr
-	response chan RawMsg
+	response chan dnsmsg.RawMsg
 }
 
 func NewForwarder() *Forwarder {
@@ -94,7 +93,7 @@ func (f *Forwarder) Listen(address string) (net.PacketConn, error) {
 // NOTE: This function blocks until Stop() is called.
 func (f *Forwarder) Serve(pc net.PacketConn) {
 	f.conn = pc
-	f.responses = make(chan RawMsg)
+	f.responses = make(chan dnsmsg.RawMsg)
 	f.wg.Add(1)
 	go f.receive()
 
@@ -138,8 +137,8 @@ func (f *Forwarder) handle(pc net.PacketConn, addr net.Addr, data []byte) {
 	}
 }
 
-func (f *Forwarder) query(client net.Addr, msg RawMsg) (RawMsg, error) {
-	query, err := NewQueryMsg(msg)
+func (f *Forwarder) query(client net.Addr, msg dnsmsg.RawMsg) (dnsmsg.RawMsg, error) {
+	query, err := dnsmsg.NewQueryMsg(msg)
 	if err != nil {
 		return nil, errQueryInvalid
 	}
@@ -176,7 +175,7 @@ func (f *Forwarder) query(client net.Addr, msg RawMsg) (RawMsg, error) {
 	key := query.SessionKey()
 	session := &Session{
 		client:   client,
-		response: make(chan RawMsg, 1),
+		response: make(chan dnsmsg.RawMsg, 1),
 	}
 	f.sessions.Set(key, session, ttlcache.DefaultTTL)
 	log.Debugf("added session with key: %s", key)
