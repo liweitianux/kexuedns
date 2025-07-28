@@ -37,7 +37,7 @@ var (
 // TODO: cache
 type Forwarder struct {
 	resolver  *Resolver // TODO: => resolver router
-	responses chan dnsmsg.RawMsg
+	responses chan []byte
 	sessions  *ttlcache.Cache // dnsmsg.SessionKey() => *Session
 	conn      net.PacketConn
 	wg        *sync.WaitGroup
@@ -45,7 +45,7 @@ type Forwarder struct {
 
 type Session struct {
 	client   net.Addr
-	response chan dnsmsg.RawMsg
+	response chan []byte
 }
 
 func NewForwarder() *Forwarder {
@@ -93,7 +93,7 @@ func (f *Forwarder) Listen(address string) (net.PacketConn, error) {
 // NOTE: This function blocks until Stop() is called.
 func (f *Forwarder) Serve(pc net.PacketConn) {
 	f.conn = pc
-	f.responses = make(chan dnsmsg.RawMsg)
+	f.responses = make(chan []byte)
 	f.wg.Add(1)
 	go f.receive()
 
@@ -137,7 +137,7 @@ func (f *Forwarder) handle(pc net.PacketConn, addr net.Addr, data []byte) {
 	}
 }
 
-func (f *Forwarder) query(client net.Addr, msg dnsmsg.RawMsg) (dnsmsg.RawMsg, error) {
+func (f *Forwarder) query(client net.Addr, msg []byte) ([]byte, error) {
 	query, err := dnsmsg.NewQueryMsg(msg)
 	if err != nil {
 		return nil, errQueryInvalid
@@ -175,7 +175,7 @@ func (f *Forwarder) query(client net.Addr, msg dnsmsg.RawMsg) (dnsmsg.RawMsg, er
 	key := query.SessionKey()
 	session := &Session{
 		client:   client,
-		response: make(chan dnsmsg.RawMsg, 1),
+		response: make(chan []byte, 1),
 	}
 	f.sessions.Set(key, session, ttlcache.DefaultTTL)
 	log.Debugf("added session with key: %s", key)
@@ -201,8 +201,9 @@ func (f *Forwarder) receive() {
 			break
 		}
 
-		key, err := resp.SessionKey()
+		key, err := dnsmsg.RawMsg(resp).SessionKey()
 		if err != nil {
+			log.Warnf("invalid response: %v", err)
 			continue
 		}
 
