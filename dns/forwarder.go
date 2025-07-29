@@ -124,8 +124,12 @@ func (f *Forwarder) Start() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	f.cancel = cancel
 
+	f.wg.Add(1)
 	go f.serve(ctx, conn)
-	log.Infof("started forwarder at: %s", addr.String())
+	log.Infof("started UDP forwarder at: %s", addr.String())
+
+	f.wg.Add(1)
+	go f.receive()
 
 	return nil
 }
@@ -138,21 +142,20 @@ func (f *Forwarder) serve(ctx context.Context, conn *net.UDPConn) {
 		conn.Close()
 	}()
 
-	f.responses = make(chan []byte)
-	f.wg.Add(1)
-	go f.receive()
-
 	buf := make([]byte, maxQuerySize)
 	for {
 		n, addr, err := conn.ReadFrom(buf)
 		if err != nil {
 			if errors.Is(err, net.ErrClosed) {
-				log.Infof("connection closed; stopping ...")
+				log.Infof("connection closed; stop UDP forwarder")
+				f.wg.Done()
 				return
 			}
+
 			log.Warnf("failed to read packet: %v", err)
 			continue
 		}
+
 		if n <= minQuerySize {
 			log.Debugf("malformatted query: n=%d", n)
 			continue
@@ -227,6 +230,8 @@ func (f *Forwarder) query(query *dnsmsg.QueryMsg) error {
 
 // Receive responses from the backend resolver and dispatch to clients.
 func (f *Forwarder) receive() {
+	f.responses = make(chan []byte)
+
 	if f.resolver != nil {
 		go f.resolver.Receive(f.responses)
 	}
@@ -234,8 +239,9 @@ func (f *Forwarder) receive() {
 	for {
 		resp, ok := <-f.responses
 		if !ok {
-			log.Debugf("responses channel closed")
-			break
+			log.Debugf("channel closed")
+			f.wg.Done()
+			return
 		}
 
 		key, err := dnsmsg.RawMsg(resp).SessionKey()
@@ -250,8 +256,6 @@ func (f *Forwarder) receive() {
 			log.Warnf("session [%s] not found or expired", key)
 		}
 	}
-
-	f.wg.Done()
 }
 
 // Reply the client with the response.
