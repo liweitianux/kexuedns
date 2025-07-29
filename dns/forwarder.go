@@ -80,15 +80,23 @@ func (f *Forwarder) Stop() {
 	log.Infof("forwarder stopped")
 }
 
-// Listen at the given address and return the connection for Serve().
-// NOTE: Splitting Listen() and Serve() helps the caller better handle the
-// error.
-func (f *Forwarder) Listen(address string) (net.PacketConn, error) {
-	return net.ListenPacket("udp", address)
+// Start the forwarder at the given address (address).
+// This function starts a goroutine to serve the queries so it doesn't block.
+func (f *Forwarder) Start(address string) error {
+	pc, err := net.ListenPacket("udp", address)
+	if err != nil {
+		log.Errorf("failed to listen at: %s, error: %v", address, err)
+		return err
+	}
+
+	go f.serve(pc)
+	log.Infof("started forwarder at: %s", address)
+
+	return nil
 }
 
 // NOTE: This function blocks until Stop() is called.
-func (f *Forwarder) Serve(pc net.PacketConn) {
+func (f *Forwarder) serve(pc net.PacketConn) {
 	f.conn = pc
 	f.responses = make(chan []byte)
 	f.wg.Add(1)

@@ -67,15 +67,10 @@ func (h *ApiHandler) start(w http.ResponseWriter, r *http.Request) {
 	}
 
 	addrport := netip.AddrPortFrom(addr, h.config.ListenPort)
-	pc, err := h.forwarder.Listen(addrport.String())
-	if err != nil {
-		log.Errorf("failed to listen at: %s, error: %v", addrport.String(), err)
-		http.Error(w, "listen failure: "+err.Error(), http.StatusInternalServerError)
+	if err := h.forwarder.Start(addrport.String()); err != nil {
+		http.Error(w, "start failure: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-
-	go h.forwarder.Serve(pc)
-	log.Infof("started forwarder at: %s", addrport.String())
 
 	w.WriteHeader(http.StatusNoContent)
 }
