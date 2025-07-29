@@ -25,7 +25,7 @@ type ApiHandler struct {
 
 func NewApiHandler() *ApiHandler {
 	h := &ApiHandler{
-		forwarder: dns.NewForwarder(),
+		forwarder: &dns.Forwarder{},
 		config:    config.Get(),
 		myip:      config.GetMyIP(),
 		mux:       http.NewServeMux(),

@@ -53,12 +53,6 @@ type Session struct {
 	query  []byte // original query packet
 }
 
-func NewForwarder() *Forwarder {
-	return &Forwarder{
-		sessions: ttlcache.New(sessionTimeout, 0, nil),
-	}
-}
-
 func (f *Forwarder) SetResolver(r *Resolver) {
 	if f.resolver != nil {
 		f.resolver.Close()
@@ -83,6 +77,10 @@ func (f *Forwarder) Stop() {
 // Start the forwarder at the given address (address).
 // This function starts a goroutine to serve the queries so it doesn't block.
 func (f *Forwarder) Start(address string) error {
+	if f.sessions == nil {
+		f.sessions = ttlcache.New(sessionTimeout, 0, nil)
+	}
+
 	conn, err := net.ListenPacket("udp", address)
 	if err != nil {
 		log.Errorf("failed to listen at: %s, error: %v", address, err)
