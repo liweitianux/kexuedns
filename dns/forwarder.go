@@ -8,6 +8,7 @@
 package dns
 
 import (
+	"context"
 	"errors"
 	"net"
 	"sync"
@@ -41,11 +42,13 @@ type Forwarder struct {
 	resolver  *Resolver // TODO: => resolver router
 	responses chan []byte
 	sessions  *ttlcache.Cache // dnsmsg.SessionKey() => *Session
-	conn      net.PacketConn
-	wg        sync.WaitGroup
+
+	cancel context.CancelFunc // cancel listners to stop the forwarder
+	wg     sync.WaitGroup     // wait for shutdown to complete
 }
 
 type Session struct {
+	conn   net.PacketConn
 	client net.Addr
 	query  []byte // original query packet
 }
@@ -65,8 +68,7 @@ func (f *Forwarder) SetResolver(r *Resolver) {
 }
 
 func (f *Forwarder) Stop() {
-	f.conn.Close()
-	f.conn = nil
+	f.cancel()
 
 	if f.resolver != nil {
 		f.resolver.Close()
@@ -82,28 +84,36 @@ func (f *Forwarder) Stop() {
 // Start the forwarder at the given address (address).
 // This function starts a goroutine to serve the queries so it doesn't block.
 func (f *Forwarder) Start(address string) error {
-	pc, err := net.ListenPacket("udp", address)
+	conn, err := net.ListenPacket("udp", address)
 	if err != nil {
 		log.Errorf("failed to listen at: %s, error: %v", address, err)
 		return err
 	}
 
-	go f.serve(pc)
+	ctx, cancel := context.WithCancel(context.Background())
+	f.cancel = cancel
+
+	go f.serve(ctx, conn)
 	log.Infof("started forwarder at: %s", address)
 
 	return nil
 }
 
 // NOTE: This function blocks until Stop() is called.
-func (f *Forwarder) serve(pc net.PacketConn) {
-	f.conn = pc
+func (f *Forwarder) serve(ctx context.Context, conn net.PacketConn) {
+	go func() {
+		// Wait for cancellation from Stop().
+		<-ctx.Done()
+		conn.Close()
+	}()
+
 	f.responses = make(chan []byte)
 	f.wg.Add(1)
 	go f.receive()
 
 	buf := make([]byte, maxQuerySize)
 	for {
-		n, addr, err := pc.ReadFrom(buf)
+		n, addr, err := conn.ReadFrom(buf)
 		if err != nil {
 			if errors.Is(err, net.ErrClosed) {
 				log.Infof("connection closed; stopping ...")
@@ -119,11 +129,11 @@ func (f *Forwarder) serve(pc net.PacketConn) {
 
 		data := make([]byte, n)
 		copy(data, buf[:n])
-		go f.handle(data, addr)
+		go f.handle(data, conn, addr)
 	}
 }
 
-func (f *Forwarder) handle(msg []byte, client net.Addr) {
+func (f *Forwarder) handle(msg []byte, conn net.PacketConn, client net.Addr) {
 	query, err := dnsmsg.NewQueryMsg(msg)
 	if err != nil {
 		log.Debugf("invalid query packet: %v", err)
@@ -132,6 +142,7 @@ func (f *Forwarder) handle(msg []byte, client net.Addr) {
 
 	key := query.SessionKey()
 	session := &Session{
+		conn:   conn,
 		client: client,
 		query:  msg,
 	}
@@ -219,7 +230,7 @@ func (f *Forwarder) reply(session *Session, resp []byte) {
 		resp[3] |= 0x02 // Set RCode to ServFail
 	}
 
-	_, err := f.conn.WriteTo(resp, session.client)
+	_, err := session.conn.WriteTo(resp, session.client)
 	if err != nil {
 		log.Warnf("failed to write packet: %v", err)
 	}
