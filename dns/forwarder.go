@@ -92,7 +92,10 @@ func (f *Forwarder) Stop() {
 		f.resolver.Close()
 	}
 
-	close(f.responses)
+	if f.responses != nil {
+		close(f.responses)
+		f.responses = nil
+	}
 
 	f.wg.Wait()
 	log.Infof("forwarder stopped")

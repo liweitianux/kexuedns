@@ -63,11 +63,10 @@ func NewResolver(ip string, port uint16, hostname string) (*Resolver, error) {
 		name = addrport.String()
 	}
 	r := &Resolver{
-		name:      name,
-		ip:        addr,
-		port:      port,
-		hostname:  hostname,
-		responses: make(chan []byte, channelSize),
+		name:     name,
+		ip:       addr,
+		port:     port,
+		hostname: hostname,
 	}
 	// Perform the connection to catch the possible errors early.
 	if err := r.connect(); err != nil {
@@ -120,6 +119,8 @@ func (r *Resolver) Receive(ch chan []byte) {
 		panic("already started receiving")
 	}
 
+	r.responses = make(chan []byte, channelSize)
+
 	r.wg.Add(1)
 	r.receiving = true
 
@@ -139,9 +140,15 @@ func (r *Resolver) Receive(ch chan []byte) {
 // Disconnect and close channels.
 func (r *Resolver) Close() {
 	r.disconnect()
-	close(r.responses)
 
+	if r.responses == nil {
+		return
+	}
+
+	close(r.responses)
+	r.responses = nil
 	r.wg.Wait()
+
 	log.Infof("[%s] closed", r.name)
 }
 
