@@ -56,7 +56,7 @@ type ListenConfig struct {
 }
 
 type Session struct {
-	conn   net.PacketConn
+	conn   *net.UDPConn
 	client net.Addr
 	query  []byte      // original query packet
 	timer  *time.Timer // query timeout timer
@@ -114,10 +114,10 @@ func (f *Forwarder) Start() error {
 		return nil
 	}
 
-	address := f.Listen.Address.String()
-	conn, err := net.ListenPacket("udp", address)
+	addr := net.UDPAddrFromAddrPort(f.Listen.Address)
+	conn, err := net.ListenUDP("udp", addr)
 	if err != nil {
-		log.Errorf("failed to listen at: %s, error: %v", address, err)
+		log.Errorf("failed to listen at: %s, error: %v", addr.String(), err)
 		return err
 	}
 
@@ -125,13 +125,13 @@ func (f *Forwarder) Start() error {
 	f.cancel = cancel
 
 	go f.serve(ctx, conn)
-	log.Infof("started forwarder at: %s", address)
+	log.Infof("started forwarder at: %s", addr.String())
 
 	return nil
 }
 
 // NOTE: This function blocks until Stop() is called.
-func (f *Forwarder) serve(ctx context.Context, conn net.PacketConn) {
+func (f *Forwarder) serve(ctx context.Context, conn *net.UDPConn) {
 	go func() {
 		// Wait for cancellation from Stop().
 		<-ctx.Done()
@@ -164,7 +164,7 @@ func (f *Forwarder) serve(ctx context.Context, conn net.PacketConn) {
 	}
 }
 
-func (f *Forwarder) handle(msg []byte, conn net.PacketConn, client net.Addr) {
+func (f *Forwarder) handle(msg []byte, conn *net.UDPConn, client net.Addr) {
 	query, err := dnsmsg.NewQueryMsg(msg)
 	if err != nil {
 		log.Debugf("invalid query packet: %v", err)
