@@ -42,7 +42,7 @@ type Forwarder struct {
 	responses chan []byte
 	sessions  *ttlcache.Cache // dnsmsg.SessionKey() => *Session
 	conn      net.PacketConn
-	wg        *sync.WaitGroup
+	wg        sync.WaitGroup
 }
 
 type Session struct {
@@ -53,7 +53,6 @@ type Session struct {
 func NewForwarder() *Forwarder {
 	return &Forwarder{
 		sessions: ttlcache.New(sessionTimeout, 0, nil),
-		wg:       &sync.WaitGroup{},
 	}
 }
 

@@ -44,7 +44,7 @@ type Resolver struct {
 	responses chan []byte
 	reading   bool
 	receiving bool
-	wg        *sync.WaitGroup
+	wg        sync.WaitGroup
 	mutex     sync.Mutex
 }
 
@@ -68,7 +68,6 @@ func NewResolver(ip string, port uint16, hostname string) (*Resolver, error) {
 		port:      port,
 		hostname:  hostname,
 		responses: make(chan []byte, channelSize),
-		wg:        &sync.WaitGroup{},
 	}
 	// Perform the connection to catch the possible errors early.
 	if err := r.connect(); err != nil {
