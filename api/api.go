@@ -9,7 +9,6 @@ package api
 
 import (
 	"net/http"
-	"net/netip"
 
 	"kexuedns/config"
 	"kexuedns/dns"
@@ -59,15 +58,14 @@ func (h *ApiHandler) start(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	addr, err := netip.ParseAddr(h.config.ListenAddr)
+	err := h.forwarder.SetListen(h.config.ListenAddr, h.config.ListenPort)
 	if err != nil {
-		log.Errorf("invalid listen address: %s, error: %v", h.config.ListenAddr, err)
-		http.Error(w, "invalid address: "+err.Error(), http.StatusInternalServerError)
+		log.Errorf("failed to set listen: %v", err)
+		http.Error(w, "set listen failure: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	addrport := netip.AddrPortFrom(addr, h.config.ListenPort)
-	if err := h.forwarder.Start(addrport.String()); err != nil {
+	if err := h.forwarder.Start(); err != nil {
 		http.Error(w, "start failure: "+err.Error(), http.StatusInternalServerError)
 		return
 	}

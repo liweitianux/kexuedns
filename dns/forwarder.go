@@ -10,7 +10,9 @@ package dns
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
+	"net/netip"
 	"sync"
 	"time"
 
@@ -39,6 +41,8 @@ var (
 // TODO: router
 // TODO: cache
 type Forwarder struct {
+	Listen *ListenConfig // UDP+TCP protocols
+
 	resolver  *Resolver // TODO: => resolver router
 	responses chan []byte
 	sessions  *ttlcache.Cache // dnsmsg.SessionKey() => *Session
@@ -47,10 +51,30 @@ type Forwarder struct {
 	wg     sync.WaitGroup     // wait for shutdown to complete
 }
 
+type ListenConfig struct {
+	Address netip.AddrPort
+}
+
 type Session struct {
 	conn   net.PacketConn
 	client net.Addr
 	query  []byte // original query packet
+}
+
+// Set the address of UDP+TCP listeners.
+func (f *Forwarder) SetListen(ip string, port uint16) error {
+	if port == 0 {
+		port = 53
+	}
+	addr, err := netip.ParseAddr(ip)
+	if err != nil {
+		return fmt.Errorf("invalid IP address [%s]: %v", ip, err)
+	}
+
+	f.Listen = &ListenConfig{
+		Address: netip.AddrPortFrom(addr, port),
+	}
+	return nil
 }
 
 func (f *Forwarder) SetResolver(r *Resolver) {
@@ -76,11 +100,17 @@ func (f *Forwarder) Stop() {
 
 // Start the forwarder at the given address (address).
 // This function starts a goroutine to serve the queries so it doesn't block.
-func (f *Forwarder) Start(address string) error {
+func (f *Forwarder) Start() error {
 	if f.sessions == nil {
 		f.sessions = ttlcache.New(sessionTimeout, 0, nil)
 	}
 
+	if f.Listen == nil {
+		log.Infof("no listen address configured")
+		return nil
+	}
+
+	address := f.Listen.Address.String()
 	conn, err := net.ListenPacket("udp", address)
 	if err != nil {
 		log.Errorf("failed to listen at: %s, error: %v", address, err)
