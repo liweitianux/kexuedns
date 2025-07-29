@@ -72,12 +72,11 @@ func (f *Forwarder) Stop() {
 
 	if f.resolver != nil {
 		f.resolver.Close()
-		f.resolver = nil
 	}
 
 	close(f.responses)
-	f.wg.Wait()
 
+	f.wg.Wait()
 	log.Infof("forwarder stopped")
 }
 
@@ -196,7 +195,9 @@ func (f *Forwarder) query(query *dnsmsg.QueryMsg) error {
 
 // Receive responses from the backend resolver and dispatch to clients.
 func (f *Forwarder) receive() {
-	go f.resolver.Receive(f.responses)
+	if f.resolver != nil {
+		go f.resolver.Receive(f.responses)
+	}
 
 	for {
 		resp, ok := <-f.responses
