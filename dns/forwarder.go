@@ -58,7 +58,8 @@ type ListenConfig struct {
 type Session struct {
 	conn   net.PacketConn
 	client net.Addr
-	query  []byte // original query packet
+	query  []byte      // original query packet
+	timer  *time.Timer // query timeout timer
 }
 
 // Set the address of UDP+TCP listeners.
@@ -185,7 +186,7 @@ func (f *Forwarder) handle(msg []byte, conn net.PacketConn, client net.Addr) {
 		return
 	}
 
-	time.AfterFunc(queryTimeout, func() {
+	session.timer = time.AfterFunc(queryTimeout, func() {
 		log.Infof("session [%s] timed out", key)
 		f.sessions.Delete(key)
 		f.reply(session, nil)
@@ -255,6 +256,10 @@ func (f *Forwarder) receive() {
 
 // Reply the client with the response.
 func (f *Forwarder) reply(session *Session, resp []byte) {
+	if session.timer != nil {
+		session.timer.Stop()
+	}
+
 	if len(resp) == 0 {
 		// Reply with ServFail.
 		resp = session.query
