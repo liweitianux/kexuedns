@@ -31,12 +31,6 @@ import (
 
 const progname = "KexueDNS"
 
-var (
-	// set by build flags
-	version     string
-	versionDate string
-)
-
 func main() {
 	isDebug := flag.Bool("debug", false, "enable debug profiling")
 	logLevel := flag.String("log-level", "info", "log level: debug/info/notice/warn/error")
@@ -50,14 +44,10 @@ func main() {
 	flag.Parse()
 
 	if *showVersion {
-		fmt.Printf("%s %s (%s)\n", progname, version, versionDate)
+		vi := config.GetVersion()
+		fmt.Printf("%s %s (%s)\n", progname, vi.Version, vi.Date)
 		return
 	}
-
-	config.SetVersion(&config.VersionInfo{
-		Version: version,
-		Date:    versionDate,
-	})
 
 	log.SetLevelString(*logLevel)
 	log.Infof("set log level to [%s]", *logLevel)
