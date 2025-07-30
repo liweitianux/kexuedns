@@ -337,7 +337,7 @@ func (f *Forwarder) receive() {
 		}
 
 		if v, ok := f.sessions.Pop(key); ok {
-			f.reply(v.(*Session), resp)
+			go f.reply(v.(*Session), resp)
 		} else {
 			log.Warnf("session [%s] not found or expired", key)
 		}
