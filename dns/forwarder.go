@@ -117,46 +117,56 @@ func (f *Forwarder) Stop() {
 
 // Start the forwarder at the given address (address).
 // This function starts a goroutine to serve the queries so it doesn't block.
-func (f *Forwarder) Start() error {
+func (f *Forwarder) Start() (err error) {
 	if f.sessions == nil {
 		f.sessions = ttlcache.New(sessionTimeout, 0, nil)
 	}
 
 	if f.Listen == nil {
 		log.Infof("no listen address configured")
-		return nil
+		return
 	}
+
+	var closers []io.Closer // all opened connection/listeners
+	defer func() {
+		if err != nil {
+			for _, c := range closers {
+				c.Close()
+			}
+		}
+	}()
 
 	udpAddr := net.UDPAddrFromAddrPort(f.Listen.Address)
 	udpConn, err := net.ListenUDP("udp", udpAddr)
 	if err != nil {
 		log.Errorf("failed to listen UDP at: %s, error: %v", udpAddr, err)
-		return err
+		return
 	}
+	closers = append(closers, udpConn)
+	log.Infof("bound UDP forwarder at: %s", udpAddr)
 
 	tcpAddr := net.TCPAddrFromAddrPort(f.Listen.Address)
 	tcpLn, err := net.ListenTCP("tcp", tcpAddr)
 	if err != nil {
 		log.Errorf("failed to listen TCP at: %s, error: %v", tcpAddr, err)
-		udpConn.Close() // TODO: improve
-		return err
+		return
 	}
+	closers = append(closers, tcpLn)
+	log.Infof("bound TCP forwarder at: %s", tcpAddr)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	f.cancel = cancel
 
 	f.wg.Add(1)
 	go f.serveUDP(ctx, udpConn)
-	log.Infof("started UDP forwarder at: %s", udpAddr)
 
 	f.wg.Add(1)
 	go f.serveTCP(ctx, tcpLn)
-	log.Infof("started TCP forwarder at: %s", tcpAddr)
 
 	f.wg.Add(1)
 	go f.receive()
 
-	return nil
+	return
 }
 
 // NOTE: This function blocks until Stop() is called.
