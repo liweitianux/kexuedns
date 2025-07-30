@@ -109,6 +109,11 @@ type Session struct {
 
 // Set the address of UDP+TCP listeners.
 func (f *Forwarder) SetListen(ip string, port uint16) error {
+	if ip == "" {
+		f.Listen = nil
+		return nil
+	}
+
 	if port == 0 {
 		port = 53
 	}
@@ -123,6 +128,11 @@ func (f *Forwarder) SetListen(ip string, port uint16) error {
 
 // Set the address and certificate of DoT listener.
 func (f *Forwarder) SetListenDoT(ip string, port uint16, certFile, keyFile string) error {
+	if ip == "" {
+		f.ListenDoT = nil
+		return nil
+	}
+
 	if port == 0 {
 		port = 853
 	}
@@ -137,6 +147,11 @@ func (f *Forwarder) SetListenDoT(ip string, port uint16, certFile, keyFile strin
 
 // Set the address and certificate of DoH listener.
 func (f *Forwarder) SetListenDoH(ip string, port uint16, certFile, keyFile string) error {
+	if ip == "" {
+		f.ListenDoH = nil
+		return nil
+	}
+
 	if port == 0 {
 		port = 443
 	}
