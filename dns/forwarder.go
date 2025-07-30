@@ -100,7 +100,9 @@ func (f *Forwarder) SetResolver(r *Resolver) {
 }
 
 func (f *Forwarder) Stop() {
-	f.cancel()
+	if f.cancel != nil {
+		f.cancel()
+	}
 
 	if f.resolver != nil {
 		f.resolver.Close()
