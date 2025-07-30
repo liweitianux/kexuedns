@@ -9,6 +9,7 @@ package dns
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -52,7 +53,9 @@ const (
 // TODO: router
 // TODO: cache
 type Forwarder struct {
-	Listen *ListenConfig // UDP+TCP protocols
+	Listen    *ListenConfig // UDP+TCP protocols
+	ListenDoT *ListenConfig // DoT protocol
+	ListenDoH *ListenConfig // DoH protocol
 
 	resolver  *Resolver // TODO: => resolver router
 	responses chan []byte
@@ -63,7 +66,8 @@ type Forwarder struct {
 }
 
 type ListenConfig struct {
-	Address netip.AddrPort
+	Address     netip.AddrPort
+	Certificate *tls.Certificate
 }
 
 func (lc *ListenConfig) listen(proto dnsProto) (io.Closer, error) {
@@ -108,15 +112,65 @@ func (f *Forwarder) SetListen(ip string, port uint16) error {
 	if port == 0 {
 		port = 53
 	}
-	addr, err := netip.ParseAddr(ip)
+	lc, err := f.makeListenConfig(ip, port, "", "")
 	if err != nil {
-		return fmt.Errorf("invalid IP address [%s]: %v", ip, err)
+		return err
 	}
 
-	f.Listen = &ListenConfig{
+	f.Listen = lc
+	return nil
+}
+
+// Set the address and certificate of DoT listener.
+func (f *Forwarder) SetListenDoT(ip string, port uint16, certFile, keyFile string) error {
+	if port == 0 {
+		port = 853
+	}
+	lc, err := f.makeListenConfig(ip, port, certFile, keyFile)
+	if err != nil {
+		return err
+	}
+
+	f.ListenDoT = lc
+	return nil
+}
+
+// Set the address and certificate of DoH listener.
+func (f *Forwarder) SetListenDoH(ip string, port uint16, certFile, keyFile string) error {
+	if port == 0 {
+		port = 443
+	}
+	lc, err := f.makeListenConfig(ip, port, certFile, keyFile)
+	if err != nil {
+		return err
+	}
+
+	f.ListenDoH = lc
+	return nil
+}
+
+func (f *Forwarder) makeListenConfig(
+	ip string, port uint16, certFile, keyFile string,
+) (*ListenConfig, error) {
+	addr, err := netip.ParseAddr(ip)
+	if err != nil {
+		return nil, fmt.Errorf("invalid IP address [%s]: %v", ip, err)
+	}
+
+	lc := &ListenConfig{
 		Address: netip.AddrPortFrom(addr, port),
 	}
-	return nil
+
+	if certFile != "" && keyFile != "" {
+		cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load cert/key pair: %v", err)
+		}
+
+		lc.Certificate = &cert
+	}
+
+	return lc, nil
 }
 
 func (f *Forwarder) SetResolver(r *Resolver) {
