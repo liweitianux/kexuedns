@@ -9,8 +9,10 @@ package dns
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/netip"
 	"sync"
@@ -38,6 +40,15 @@ var (
 	errResolverNotFound = errors.New("resolver not found")
 )
 
+type dnsProto int
+
+const (
+	dnsProtoUDP dnsProto = iota
+	dnsProtoTCP
+	dnsProtoDoT // DNS-over-TLS
+	dnsProtoDoH // DNS-over-HTTPS
+)
+
 // TODO: router
 // TODO: cache
 type Forwarder struct {
@@ -56,10 +67,12 @@ type ListenConfig struct {
 }
 
 type Session struct {
-	conn   *net.UDPConn
-	client net.Addr
-	query  []byte      // original query packet
-	timer  *time.Timer // query timeout timer
+	proto   dnsProto
+	udpConn *net.UDPConn
+	tcpConn *net.TCPConn
+	client  net.Addr
+	query   []byte      // original query packet
+	timer   *time.Timer // query timeout timer
 }
 
 // Set the address of UDP+TCP listeners.
@@ -114,10 +127,18 @@ func (f *Forwarder) Start() error {
 		return nil
 	}
 
-	addr := net.UDPAddrFromAddrPort(f.Listen.Address)
-	conn, err := net.ListenUDP("udp", addr)
+	udpAddr := net.UDPAddrFromAddrPort(f.Listen.Address)
+	udpConn, err := net.ListenUDP("udp", udpAddr)
 	if err != nil {
-		log.Errorf("failed to listen at: %s, error: %v", addr.String(), err)
+		log.Errorf("failed to listen UDP at: %s, error: %v", udpAddr, err)
+		return err
+	}
+
+	tcpAddr := net.TCPAddrFromAddrPort(f.Listen.Address)
+	tcpLn, err := net.ListenTCP("tcp", tcpAddr)
+	if err != nil {
+		log.Errorf("failed to listen TCP at: %s, error: %v", tcpAddr, err)
+		udpConn.Close() // TODO: improve
 		return err
 	}
 
@@ -125,8 +146,12 @@ func (f *Forwarder) Start() error {
 	f.cancel = cancel
 
 	f.wg.Add(1)
-	go f.serve(ctx, conn)
-	log.Infof("started UDP forwarder at: %s", addr.String())
+	go f.serveUDP(ctx, udpConn)
+	log.Infof("started UDP forwarder at: %s", udpAddr)
+
+	f.wg.Add(1)
+	go f.serveTCP(ctx, tcpLn)
+	log.Infof("started TCP forwarder at: %s", tcpAddr)
 
 	f.wg.Add(1)
 	go f.receive()
@@ -135,7 +160,7 @@ func (f *Forwarder) Start() error {
 }
 
 // NOTE: This function blocks until Stop() is called.
-func (f *Forwarder) serve(ctx context.Context, conn *net.UDPConn) {
+func (f *Forwarder) serveUDP(ctx context.Context, conn *net.UDPConn) {
 	go func() {
 		// Wait for cancellation from Stop().
 		<-ctx.Done()
@@ -156,30 +181,91 @@ func (f *Forwarder) serve(ctx context.Context, conn *net.UDPConn) {
 			continue
 		}
 
-		if n <= minQuerySize {
-			log.Debugf("malformatted query: n=%d", n)
-			continue
+		msg := make([]byte, n)
+		copy(msg, buf[:n])
+		session := &Session{
+			proto:   dnsProtoUDP,
+			udpConn: conn,
+			client:  addr,
+			query:   msg,
 		}
-
-		data := make([]byte, n)
-		copy(data, buf[:n])
-		go f.handle(data, conn, addr)
+		log.Debugf("handle UDP query from %s", addr)
+		go f.handleQuery(session)
 	}
 }
 
-func (f *Forwarder) handle(msg []byte, conn *net.UDPConn, client net.Addr) {
-	query, err := dnsmsg.NewQueryMsg(msg)
-	if err != nil {
-		log.Debugf("invalid query packet: %v", err)
+// NOTE: This function blocks until Stop() is called.
+func (f *Forwarder) serveTCP(ctx context.Context, ln *net.TCPListener) {
+	go func() {
+		// Wait for cancellation from Stop().
+		<-ctx.Done()
+		ln.Close()
+	}()
+
+	for {
+		conn, err := ln.AcceptTCP()
+		if err != nil {
+			if errors.Is(err, net.ErrClosed) {
+				log.Infof("listener closed; stop TCP forwarder")
+				f.wg.Done()
+				return
+			}
+
+			log.Warnf("failed to read packet: %v", err)
+			continue
+		}
+
+		go f.handleTCP(ctx, conn)
+	}
+}
+
+func (f *Forwarder) handleTCP(ctx context.Context, conn *net.TCPConn) {
+	log.Debugf("handle TCP queries from %s", conn.RemoteAddr())
+	defer conn.Close()
+
+	for {
+		// read query length
+		lbuf := make([]byte, 2)
+		if _, err := io.ReadFull(conn, lbuf); err != nil {
+			if errors.Is(err, io.EOF) {
+				log.Debugf("remote closed connection")
+			} else if errors.Is(err, net.ErrClosed) {
+				log.Debugf("connection closed")
+			} else {
+				log.Errorf("failed to read query length: %v", err)
+			}
+			return
+		}
+		// read query content
+		length := binary.BigEndian.Uint16(lbuf)
+		msg := make([]byte, length)
+		if _, err := io.ReadFull(conn, msg); err != nil {
+			log.Errorf("failed to read query content: %v", err)
+			return
+		}
+
+		session := &Session{
+			proto:   dnsProtoTCP,
+			tcpConn: conn,
+			query:   msg,
+		}
+		go f.handleQuery(session)
+	}
+}
+
+func (f *Forwarder) handleQuery(session *Session) {
+	if n := len(session.query); n <= minQuerySize {
+		log.Debugf("malformatted query: length=%d", n)
 		return // Unable to make a sensible reply; just drop it.
 	}
 
-	key := query.SessionKey()
-	session := &Session{
-		conn:   conn,
-		client: client,
-		query:  msg,
+	query, err := dnsmsg.NewQueryMsg(session.query)
+	if err != nil {
+		log.Debugf("invalid query packet: %v", err)
+		return // Drop as well.
 	}
+
+	key := query.SessionKey()
 	f.sessions.Set(key, session, ttlcache.DefaultTTL)
 	log.Debugf("added session with key: %s", key)
 
@@ -271,8 +357,18 @@ func (f *Forwarder) reply(session *Session, resp []byte) {
 		resp[3] |= 0x02 // Set RCode to ServFail
 	}
 
-	_, err := session.conn.WriteTo(resp, session.client)
+	var err error
+	switch session.proto {
+	case dnsProtoUDP:
+		_, err = session.udpConn.WriteTo(resp, session.client)
+	case dnsProtoTCP:
+		lbuf := make([]byte, 2)
+		binary.BigEndian.PutUint16(lbuf, uint16(len(resp)))
+		_, err = session.tcpConn.Write(append(lbuf, resp...))
+	default:
+		panic(fmt.Sprintf("unknown protocol: %v", session.proto))
+	}
 	if err != nil {
-		log.Warnf("failed to write packet: %v", err)
+		log.Warnf("failed to send packet: %v", err)
 	}
 }
