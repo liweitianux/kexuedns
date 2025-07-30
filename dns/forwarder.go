@@ -66,6 +66,34 @@ type ListenConfig struct {
 	Address netip.AddrPort
 }
 
+func (lc *ListenConfig) listen(proto dnsProto) (io.Closer, error) {
+	switch proto {
+	case dnsProtoUDP:
+		addr := net.UDPAddrFromAddrPort(lc.Address)
+		conn, err := net.ListenUDP("udp", addr)
+		if err != nil {
+			log.Errorf("failed to listen UDP at: %s, error: %v", addr, err)
+			return nil, err
+		}
+		log.Infof("bound UDP forwarder at: %s", addr)
+		return conn, nil
+	case dnsProtoTCP:
+		addr := net.TCPAddrFromAddrPort(lc.Address)
+		ln, err := net.ListenTCP("tcp", addr)
+		if err != nil {
+			log.Errorf("failed to listen TCP at: %s, error: %v", addr, err)
+			return nil, err
+		}
+		log.Infof("bound TCP forwarder at: %s", addr)
+		return ln, nil
+	case dnsProtoDoT, dnsProtoDoH:
+		// TODO
+		return nil, errors.New("TODO")
+	default:
+		panic(fmt.Sprintf("unknown protocol: %v", proto))
+	}
+}
+
 type Session struct {
 	proto   dnsProto
 	udpConn *net.UDPConn
@@ -124,12 +152,18 @@ func (f *Forwarder) Start() (err error) {
 		f.sessions = ttlcache.New(sessionTimeout, 0, nil)
 	}
 
-	if f.Listen == nil {
+	listenConfigs := map[dnsProto]*ListenConfig{}
+	if f.Listen != nil {
+		listenConfigs[dnsProtoUDP] = f.Listen
+		listenConfigs[dnsProtoTCP] = f.Listen
+	}
+	if len(listenConfigs) == 0 {
 		log.Infof("no listen address configured")
 		return
 	}
 
-	var closers []io.Closer // all opened connection/listeners
+	// all opened connection/listeners
+	closers := map[dnsProto]io.Closer{}
 	defer func() {
 		if err != nil {
 			for _, c := range closers {
@@ -138,32 +172,34 @@ func (f *Forwarder) Start() (err error) {
 		}
 	}()
 
-	udpAddr := net.UDPAddrFromAddrPort(f.Listen.Address)
-	udpConn, err := net.ListenUDP("udp", udpAddr)
-	if err != nil {
-		log.Errorf("failed to listen UDP at: %s, error: %v", udpAddr, err)
-		return
+	for proto, lc := range listenConfigs {
+		var ln io.Closer
+		ln, err = lc.listen(proto)
+		if err != nil {
+			return
+		}
+		closers[proto] = ln
 	}
-	closers = append(closers, udpConn)
-	log.Infof("bound UDP forwarder at: %s", udpAddr)
-
-	tcpAddr := net.TCPAddrFromAddrPort(f.Listen.Address)
-	tcpLn, err := net.ListenTCP("tcp", tcpAddr)
-	if err != nil {
-		log.Errorf("failed to listen TCP at: %s, error: %v", tcpAddr, err)
-		return
-	}
-	closers = append(closers, tcpLn)
-	log.Infof("bound TCP forwarder at: %s", tcpAddr)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	f.cancel = cancel
 
-	f.wg.Add(1)
-	go f.serveUDP(ctx, udpConn)
-
-	f.wg.Add(1)
-	go f.serveTCP(ctx, tcpLn)
+	for proto, ln := range closers {
+		switch proto {
+		case dnsProtoUDP:
+			f.wg.Add(1)
+			go f.serveUDP(ctx, ln.(*net.UDPConn))
+		case dnsProtoTCP:
+			f.wg.Add(1)
+			go f.serveTCP(ctx, ln.(*net.TCPListener))
+		case dnsProtoDoT:
+			// TODO
+		case dnsProtoDoH:
+			// TODO
+		default:
+			panic(fmt.Sprintf("unknown protocol: %v", proto))
+		}
+	}
 
 	f.wg.Add(1)
 	go f.receive()
