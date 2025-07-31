@@ -89,7 +89,23 @@ func (lc *ListenConfig) listen(proto dnsProto) (io.Closer, error) {
 		}
 		log.Infof("bound TCP forwarder at: %s", lc.Address)
 		return ln, nil
-	case dnsProtoDoT, dnsProtoDoH:
+	case dnsProtoDoT:
+		config := &tls.Config{
+			Certificates: []tls.Certificate{*lc.Certificate},
+			GetConfigForClient: func(chi *tls.ClientHelloInfo) (*tls.Config, error) {
+				log.Debugf("TLS connection from %s with ServerName=[%s]",
+					chi.Conn.RemoteAddr(), chi.ServerName)
+				return nil, nil
+			},
+		}
+		ln, err := tls.Listen("tcp", lc.Address.String(), config)
+		if err != nil {
+			log.Errorf("failed to listen DoT at: %s, error: %v", lc.Address, err)
+			return nil, err
+		}
+		log.Infof("bound DoT forwarder at: %s", lc.Address)
+		return ln, nil
+	case dnsProtoDoH:
 		// TODO
 		return nil, errors.New("TODO")
 	default:
@@ -100,7 +116,7 @@ func (lc *ListenConfig) listen(proto dnsProto) (io.Closer, error) {
 type Session struct {
 	proto   dnsProto
 	udpConn *net.UDPConn
-	tcpConn net.Conn // *net.TCPConn
+	tcpConn net.Conn // *net.TCPConn, *tls.Conn
 	client  net.Addr
 	query   []byte      // original query packet
 	timer   *time.Timer // query timeout timer
@@ -261,11 +277,9 @@ func (f *Forwarder) Start() (err error) {
 		case dnsProtoUDP:
 			f.wg.Add(1)
 			go f.serveUDP(ctx, ln.(*net.UDPConn))
-		case dnsProtoTCP:
+		case dnsProtoTCP, dnsProtoDoT:
 			f.wg.Add(1)
-			go f.serveTCP(ctx, ln.(*net.TCPListener))
-		case dnsProtoDoT:
-			// TODO
+			go f.serveTCP(ctx, ln.(net.Listener))
 		case dnsProtoDoH:
 			// TODO
 		default:
@@ -314,6 +328,7 @@ func (f *Forwarder) serveUDP(ctx context.Context, conn *net.UDPConn) {
 	}
 }
 
+// Serve TCP and DoT connections.
 // NOTE: This function blocks until Stop() is called.
 func (f *Forwarder) serveTCP(ctx context.Context, ln net.Listener) {
 	go func() {
@@ -326,7 +341,7 @@ func (f *Forwarder) serveTCP(ctx context.Context, ln net.Listener) {
 		conn, err := ln.Accept()
 		if err != nil {
 			if errors.Is(err, net.ErrClosed) {
-				log.Infof("listener closed; stop TCP forwarder")
+				log.Infof("listener closed; stop TCP/DoT forwarder")
 				f.wg.Done()
 				return
 			}
@@ -343,7 +358,11 @@ func (f *Forwarder) handleTCP(ctx context.Context, conn net.Conn) {
 	defer conn.Close()
 
 	for {
-		log.Debugf("handle TCP query from %s", conn.RemoteAddr())
+		proto, protoName := dnsProtoTCP, "TCP"
+		if _, ok := conn.(*tls.Conn); ok {
+			proto, protoName = dnsProtoDoT, "DoT"
+		}
+		log.Debugf("handle %s query from %s", protoName, conn.RemoteAddr())
 		// read query length
 		lbuf := make([]byte, 2)
 		if _, err := io.ReadFull(conn, lbuf); err != nil {
@@ -365,7 +384,7 @@ func (f *Forwarder) handleTCP(ctx context.Context, conn net.Conn) {
 		}
 
 		session := &Session{
-			proto:   dnsProtoTCP,
+			proto:   proto,
 			tcpConn: conn,
 			query:   msg,
 		}
@@ -481,7 +500,7 @@ func (f *Forwarder) reply(session *Session, resp []byte) {
 	switch session.proto {
 	case dnsProtoUDP:
 		_, err = session.udpConn.WriteTo(resp, session.client)
-	case dnsProtoTCP:
+	case dnsProtoTCP, dnsProtoDoT:
 		lbuf := make([]byte, 2)
 		binary.BigEndian.PutUint16(lbuf, uint16(len(resp)))
 		_, err = session.tcpConn.Write(append(lbuf, resp...))
