@@ -221,14 +221,11 @@ func (f *Forwarder) Start() (err error) {
 		f.sessions = ttlcache.New(sessionTimeout, 0, nil)
 	}
 
-	listenConfigs := map[dnsProto]*ListenConfig{}
-	if f.Listen != nil {
-		listenConfigs[dnsProtoUDP] = f.Listen
-		listenConfigs[dnsProtoTCP] = f.Listen
-	}
-	if len(listenConfigs) == 0 {
-		log.Infof("no listen address configured")
-		return
+	listenConfigs := map[dnsProto]*ListenConfig{
+		dnsProtoUDP: f.Listen,
+		dnsProtoTCP: f.Listen,
+		dnsProtoDoT: f.ListenDoT,
+		dnsProtoDoH: f.ListenDoH,
 	}
 
 	// all opened connection/listeners
@@ -242,12 +239,19 @@ func (f *Forwarder) Start() (err error) {
 	}()
 
 	for proto, lc := range listenConfigs {
+		if lc == nil {
+			continue
+		}
 		var ln io.Closer
 		ln, err = lc.listen(proto)
 		if err != nil {
 			return
 		}
 		closers[proto] = ln
+	}
+	if len(closers) == 0 {
+		log.Infof("no listen address configured")
+		return
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
