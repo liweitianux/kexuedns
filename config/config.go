@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 //
-// Copyright (c) 2024 Aaron LI
+// Copyright (c) 2024-2025 Aaron LI
 //
 // Configuration management.
 //
@@ -31,13 +31,19 @@ type Config struct {
 }
 
 type ConfigFile struct {
-	// The listening address and port of the DNS service (UDP).
+	// The listening address and port of the DNS service (UDP+TCP).
 	ListenAddr string `json:"listen_addr"`
 	ListenPort uint16 `json:"listen_port"`
+	// The configs for listening DoT protocol.
+	ListenDoT *ListenConfig `json:"listen_dot"`
+	// The configs for listening DoH protocol.
+	ListenDoH *ListenConfig `json:"listen_doh"`
+
 	// File containing the trusted CA certificates
 	// (e.g., /etc/ssl/certs/ca-certificates.crt)
 	// If empty, then use the system's trusted CA pool.
 	CaFile string `json:"ca_file"`
+
 	// The default resolver.
 	Resolver *Resolver `json:"resolver"`
 }
@@ -51,6 +57,15 @@ func (cf *ConfigFile) setDefaults() {
 	}
 }
 
+type ListenConfig struct {
+	// The listening address and port.
+	Addr string `json:"addr"`
+	Port uint16 `json:"port"`
+	// The TLS certificate and key pair.
+	CertFile path `json:"cert_file"`
+	KeyFile  path `json:"key_file"`
+}
+
 type Resolver struct {
 	// IPv4 or IPv6 address
 	IP string `json:"ip"`
@@ -58,6 +73,19 @@ type Resolver struct {
 	Port uint16 `json:"port"`
 	// Hostname to verify the TLS certificate
 	Hostname string `json:"hostname"`
+}
+
+type path string
+
+func (p path) Path() string {
+	return getPath(string(p), configDir)
+}
+
+func getPath(path string, dir string) string {
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(dir, path)
+	}
+	return path
 }
 
 var (
@@ -164,11 +192,4 @@ func Set(cf *ConfigFile) error {
 	}
 	// TODO: update and write to file
 	return nil
-}
-
-func getPath(path string, dir string) string {
-	if !filepath.IsAbs(path) {
-		path = filepath.Join(dir, path)
-	}
-	return path
 }
