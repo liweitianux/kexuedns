@@ -82,13 +82,12 @@ func (lc *ListenConfig) listen(proto dnsProto) (io.Closer, error) {
 		log.Infof("bound UDP forwarder at: %s", addr)
 		return conn, nil
 	case dnsProtoTCP:
-		addr := net.TCPAddrFromAddrPort(lc.Address)
-		ln, err := net.ListenTCP("tcp", addr)
+		ln, err := net.Listen("tcp", lc.Address.String())
 		if err != nil {
-			log.Errorf("failed to listen TCP at: %s, error: %v", addr, err)
+			log.Errorf("failed to listen TCP at: %s, error: %v", lc.Address, err)
 			return nil, err
 		}
-		log.Infof("bound TCP forwarder at: %s", addr)
+		log.Infof("bound TCP forwarder at: %s", lc.Address)
 		return ln, nil
 	case dnsProtoDoT, dnsProtoDoH:
 		// TODO
@@ -101,7 +100,7 @@ func (lc *ListenConfig) listen(proto dnsProto) (io.Closer, error) {
 type Session struct {
 	proto   dnsProto
 	udpConn *net.UDPConn
-	tcpConn *net.TCPConn
+	tcpConn net.Conn // *net.TCPConn
 	client  net.Addr
 	query   []byte      // original query packet
 	timer   *time.Timer // query timeout timer
@@ -316,7 +315,7 @@ func (f *Forwarder) serveUDP(ctx context.Context, conn *net.UDPConn) {
 }
 
 // NOTE: This function blocks until Stop() is called.
-func (f *Forwarder) serveTCP(ctx context.Context, ln *net.TCPListener) {
+func (f *Forwarder) serveTCP(ctx context.Context, ln net.Listener) {
 	go func() {
 		// Wait for cancellation from Stop().
 		<-ctx.Done()
@@ -324,7 +323,7 @@ func (f *Forwarder) serveTCP(ctx context.Context, ln *net.TCPListener) {
 	}()
 
 	for {
-		conn, err := ln.AcceptTCP()
+		conn, err := ln.Accept()
 		if err != nil {
 			if errors.Is(err, net.ErrClosed) {
 				log.Infof("listener closed; stop TCP forwarder")
@@ -340,11 +339,11 @@ func (f *Forwarder) serveTCP(ctx context.Context, ln *net.TCPListener) {
 	}
 }
 
-func (f *Forwarder) handleTCP(ctx context.Context, conn *net.TCPConn) {
-	log.Debugf("handle TCP queries from %s", conn.RemoteAddr())
+func (f *Forwarder) handleTCP(ctx context.Context, conn net.Conn) {
 	defer conn.Close()
 
 	for {
+		log.Debugf("handle TCP query from %s", conn.RemoteAddr())
 		// read query length
 		lbuf := make([]byte, 2)
 		if _, err := io.ReadFull(conn, lbuf); err != nil {
