@@ -60,9 +60,32 @@ func (h *ApiHandler) start(w http.ResponseWriter, r *http.Request) {
 
 	err := h.forwarder.SetListen(h.config.ListenAddr, h.config.ListenPort)
 	if err != nil {
-		log.Errorf("failed to set listen: %v", err)
-		http.Error(w, "set listen failure: "+err.Error(), http.StatusInternalServerError)
+		log.Errorf("failed to set UDP+TCP listen: %v", err)
+		http.Error(w, "set UDP+TCP listen failure: "+err.Error(),
+			http.StatusInternalServerError)
 		return
+	}
+
+	if dot := h.config.ListenDoT; dot != nil {
+		err := h.forwarder.SetListenDoT(dot.Addr, dot.Port,
+			dot.CertFile.Path(), dot.KeyFile.Path())
+		if err != nil {
+			log.Errorf("failed to set DoT listen: %v", err)
+			http.Error(w, "set DoT listen failure: "+err.Error(),
+				http.StatusInternalServerError)
+			return
+		}
+	}
+
+	if doh := h.config.ListenDoH; doh != nil {
+		err := h.forwarder.SetListenDoH(doh.Addr, doh.Port,
+			doh.CertFile.Path(), doh.KeyFile.Path())
+		if err != nil {
+			log.Errorf("failed to set DoH listen: %v", err)
+			http.Error(w, "set DoH listen failure: "+err.Error(),
+				http.StatusInternalServerError)
+			return
+		}
 	}
 
 	if err := h.forwarder.Start(); err != nil {
