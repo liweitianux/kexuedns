@@ -78,6 +78,12 @@ func (m RawMsg) SessionKey() (string, error) {
 	return s.String(), nil
 }
 
+// Set the QR bit and given RCode.
+func (m RawMsg) SetRCode(rcode dnsmessage.RCode) {
+	m[2] |= 0x80 // Set QR bit -> response
+	m[3] |= byte(rcode & 0xF)
+}
+
 type QueryMsg struct {
 	Header   dnsmessage.Header
 	Question dnsmessage.Question
