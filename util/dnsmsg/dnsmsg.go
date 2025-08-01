@@ -84,6 +84,11 @@ func (m RawMsg) SetRCode(rcode dnsmessage.RCode) {
 	m[3] |= byte(rcode & 0xF)
 }
 
+// Set the query ID to the given (id).
+func (m RawMsg) SetID(id uint16) {
+	binary.BigEndian.PutUint16(m[:2], id)
+}
+
 type QueryMsg struct {
 	Header   dnsmessage.Header
 	Question dnsmessage.Question
