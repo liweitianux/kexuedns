@@ -19,16 +19,22 @@ func TestKey1(t *testing.T) {
 		key  string
 		str  string
 	}{
-		{name: "", key: ".", str: "."},
-		{name: ".", key: ".", str: "."},
-		{name: "com", key: "moc.", str: ".com"},
-		{name: ".com", key: "moc..", str: "..com"},
-		{name: ".cOM", key: "moc..", str: "..com"},
-		{name: "example.com", key: "moc.elpmaxe.", str: ".example.com"},
-		{name: "ExamPle.com", key: "moc.elpmaxe.", str: ".example.com"},
-		{name: "123.ABC.com", key: "moc.cba.321.", str: ".123.abc.com"},
-		{name: "987.XYZ.com", key: "moc.zyx.789.", str: ".987.xyz.com"},
-		{name: "_-[].com", key: "moc.][-_.", str: "._-[].com"},
+		{name: "", key: ".", str: ""},
+		{name: ".", key: ".", str: ""},
+		{name: "..", key: "..", str: "."},
+		{name: "com", key: "moc.", str: "com"},
+		{name: "com.", key: "moc.", str: "com"},
+		{name: ".com", key: "moc..", str: ".com"},
+		{name: ".com.", key: "moc..", str: ".com"},
+		{name: "..com", key: "moc...", str: "..com"},
+		{name: ".cOM", key: "moc..", str: ".com"},
+		{name: "example.com", key: "moc.elpmaxe.", str: "example.com"},
+		{name: "example.com.", key: "moc.elpmaxe.", str: "example.com"},
+		{name: ".example.com", key: "moc.elpmaxe..", str: ".example.com"},
+		{name: "ExamPle.com", key: "moc.elpmaxe.", str: "example.com"},
+		{name: "123.ABC.com", key: "moc.cba.321.", str: "123.abc.com"},
+		{name: "987.XYZ.com", key: "moc.zyx.789.", str: "987.xyz.com"},
+		{name: "_-[].com", key: "moc.][-_.", str: "_-[].com"},
 	}
 	for _, item := range items {
 		key := NewKey(item.name)

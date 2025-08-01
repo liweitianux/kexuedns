@@ -79,7 +79,7 @@ func (k Key) String() string {
 	for i, b := range k {
 		name[l-i-1] = b
 	}
-	return string(name)
+	return string(name[1:]) // exclude the appended dot
 }
 
 func (t *DNSTrie) AddZone(name string) {
