@@ -577,9 +577,9 @@ func (f *Forwarder) reply(session *Session, resp []byte) {
 
 	if len(resp) == 0 {
 		// Reply with ServFail.
-		resp = session.query
-		resp[2] |= 0x80 // Set QR bit
-		resp[3] |= 0x02 // Set RCode to ServFail
+		msg := dnsmsg.RawMsg(session.query)
+		msg.SetRCode(dnsmessage.RCodeServerFailure)
+		resp = []byte(msg)
 	}
 
 	var err error
