@@ -19,6 +19,7 @@ const (
 )
 
 const defaultInterval = 5 * time.Second // default cleanup interval
+var nopEviction = func(string, any) {}  // default nop eviction callback
 
 var ErrKeyExists = errors.New("key already exists")
 
@@ -53,7 +54,7 @@ func New(
 		interval = defaultInterval
 	}
 	if onEviction == nil {
-		onEviction = func(string, any) {} // nop
+		onEviction = nopEviction
 	}
 	c := &Cache{
 		items:      make(map[string]*cacheItem),

@@ -169,7 +169,7 @@ func (m *QueryMsg) QType() dnsmessage.Type {
 
 // Get the query name.
 // Note: characters inside the labels are not escaped in any way.
-// e.g., www.Example.COM.
+// e.g., "www.Example.COM."
 func (m *QueryMsg) QName() string {
 	return m.Question.Name.String()
 }
