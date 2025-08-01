@@ -10,11 +10,13 @@ package dns
 import (
 	"context"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"net/netip"
 	"sync"
 	"time"
@@ -33,6 +35,9 @@ const (
 
 	queryTimeout   = 5 * time.Second
 	sessionTimeout = 10 * time.Second
+
+	dohURI         = "/dns-query"
+	dohContentType = "application/dns-message"
 )
 
 var (
@@ -89,7 +94,7 @@ func (lc *ListenConfig) listen(proto dnsProto) (io.Closer, error) {
 		}
 		log.Infof("bound TCP forwarder at: %s", lc.Address)
 		return ln, nil
-	case dnsProtoDoT:
+	case dnsProtoDoT, dnsProtoDoH:
 		config := &tls.Config{
 			Certificates: []tls.Certificate{*lc.Certificate},
 			GetConfigForClient: func(chi *tls.ClientHelloInfo) (*tls.Config, error) {
@@ -98,28 +103,29 @@ func (lc *ListenConfig) listen(proto dnsProto) (io.Closer, error) {
 				return nil, nil
 			},
 		}
+		if proto == dnsProtoDoH {
+			config.NextProtos = []string{"h2"} // enable HTTP/2
+		}
 		ln, err := tls.Listen("tcp", lc.Address.String(), config)
 		if err != nil {
-			log.Errorf("failed to listen DoT at: %s, error: %v", lc.Address, err)
+			log.Errorf("failed to listen DoT/DoH at: %s, error: %v", lc.Address, err)
 			return nil, err
 		}
-		log.Infof("bound DoT forwarder at: %s", lc.Address)
+		log.Infof("bound DoT/DoH forwarder at: %s", lc.Address)
 		return ln, nil
-	case dnsProtoDoH:
-		// TODO
-		return nil, errors.New("TODO")
 	default:
 		panic(fmt.Sprintf("unknown protocol: %v", proto))
 	}
 }
 
 type Session struct {
-	proto   dnsProto
-	udpConn *net.UDPConn
-	tcpConn net.Conn // *net.TCPConn, *tls.Conn
-	client  net.Addr
-	query   []byte      // original query packet
-	timer   *time.Timer // query timeout timer
+	proto    dnsProto
+	udpConn  *net.UDPConn
+	tcpConn  net.Conn // *net.TCPConn, *tls.Conn
+	client   net.Addr
+	query    []byte      // original query packet
+	response chan []byte // pipe response to DoH handler
+	timer    *time.Timer // query timeout timer
 }
 
 // Set the address of UDP+TCP listeners.
@@ -281,7 +287,8 @@ func (f *Forwarder) Start() (err error) {
 			f.wg.Add(1)
 			go f.serveTCP(ctx, ln.(net.Listener))
 		case dnsProtoDoH:
-			// TODO
+			f.wg.Add(1)
+			go f.serveDoH(ctx, ln.(net.Listener))
 		default:
 			panic(fmt.Sprintf("unknown protocol: %v", proto))
 		}
@@ -354,6 +361,82 @@ func (f *Forwarder) serveTCP(ctx context.Context, ln net.Listener) {
 	}
 }
 
+func (f *Forwarder) serveDoH(ctx context.Context, ln net.Listener) {
+	server := &http.Server{
+		Handler: http.HandlerFunc(f.handleDoH),
+	}
+
+	go func() {
+		// Wait for cancellation from Stop().
+		<-ctx.Done()
+		server.Close()
+	}()
+
+	err := server.Serve(ln)
+	if errors.Is(err, http.ErrServerClosed) {
+		log.Infof("server closed; stop DoH forwarder")
+	} else {
+		log.Errorf("DoH forwarder failed: %v", err)
+	}
+	f.wg.Done()
+}
+
+func (f *Forwarder) handleDoH(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != dohURI {
+		http.Error(w, "400 bad request: uri invalid", http.StatusBadRequest)
+		return
+	}
+
+	log.Debugf("handle DoH query from %s, method=%s", r.RemoteAddr, r.Method)
+
+	var query []byte
+	switch r.Method {
+	case http.MethodGet:
+		v := r.FormValue("dns")
+		if v == "" {
+			http.Error(w, "400 bad request: dns missing", http.StatusBadRequest)
+			return
+		}
+		log.Debugf("dns-message: %s", v)
+		b, err := base64.RawURLEncoding.DecodeString(v)
+		if err != nil || len(b) == 0 {
+			http.Error(w, "400 bad request: dns invalid", http.StatusBadRequest)
+			return
+		}
+		query = b
+	case http.MethodPost:
+		if r.Header.Get("Content-Type") != dohContentType {
+			http.Error(w, "400 bad request: content-type invalid", http.StatusBadRequest)
+			return
+		}
+		body, err := io.ReadAll(r.Body)
+		if err != nil || len(body) == 0 {
+			http.Error(w, "400 bad request: body", http.StatusBadRequest)
+			return
+		}
+		query = body
+	default:
+		http.Error(w, "405 method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	session := &Session{
+		proto:    dnsProtoDoH,
+		query:    query,
+		response: make(chan []byte, 1),
+	}
+	if ok := f.handleQuery(session); !ok {
+		http.Error(w, "400 bad request: query invalid", http.StatusBadRequest)
+		return
+	}
+
+	resp := <-session.response
+
+	w.Header().Set("Content-Type", dohContentType)
+	w.WriteHeader(http.StatusOK)
+	w.Write(resp)
+}
+
 func (f *Forwarder) handleTCP(ctx context.Context, conn net.Conn) {
 	defer conn.Close()
 
@@ -392,16 +475,18 @@ func (f *Forwarder) handleTCP(ctx context.Context, conn net.Conn) {
 	}
 }
 
-func (f *Forwarder) handleQuery(session *Session) {
+// NOTE: This function is reused in handleDoH() and thus needs to return
+// a boolean indicating whether there is a reply.
+func (f *Forwarder) handleQuery(session *Session) bool {
 	if n := len(session.query); n <= minQuerySize {
 		log.Debugf("malformatted query: length=%d", n)
-		return // Unable to make a sensible reply; just drop it.
+		return false // Unable to make a sensible reply; just drop it.
 	}
 
 	query, err := dnsmsg.NewQueryMsg(session.query)
 	if err != nil {
 		log.Debugf("invalid query packet: %v", err)
-		return // Drop as well.
+		return false // Drop as well.
 	}
 
 	key := query.SessionKey()
@@ -411,14 +496,15 @@ func (f *Forwarder) handleQuery(session *Session) {
 	if err := f.query(query); err != nil {
 		f.sessions.Delete(key)
 		f.reply(session, nil)
-		return
+	} else {
+		session.timer = time.AfterFunc(queryTimeout, func() {
+			log.Infof("session [%s] timed out", key)
+			f.sessions.Delete(key)
+			f.reply(session, nil)
+		})
 	}
 
-	session.timer = time.AfterFunc(queryTimeout, func() {
-		log.Infof("session [%s] timed out", key)
-		f.sessions.Delete(key)
-		f.reply(session, nil)
-	})
+	return true // Has a reply regardless of success or failure.
 }
 
 // Query the backend resolver.
@@ -504,6 +590,10 @@ func (f *Forwarder) reply(session *Session, resp []byte) {
 		lbuf := make([]byte, 2)
 		binary.BigEndian.PutUint16(lbuf, uint16(len(resp)))
 		_, err = session.tcpConn.Write(append(lbuf, resp...))
+	case dnsProtoDoH:
+		session.response <- resp
+		// OK to close since it's buffered (i.e., created with size).
+		close(session.response)
 	default:
 		panic(fmt.Sprintf("unknown protocol: %v", session.proto))
 	}
