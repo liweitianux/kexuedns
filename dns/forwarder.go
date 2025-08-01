@@ -15,6 +15,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
+	"math/rand"
 	"net"
 	"net/http"
 	"net/netip"
@@ -118,6 +120,7 @@ type Session struct {
 	tcpConn  net.Conn // *net.TCPConn, *tls.Conn
 	client   net.Addr
 	query    []byte      // original query packet
+	queryID  uint16      // original query ID
 	response chan []byte // pipe response to DoH handler
 	timer    *time.Timer // query timeout timer
 }
@@ -232,6 +235,8 @@ func (f *Forwarder) Stop() {
 // Start the forwarder at the given address (address).
 // This function starts a goroutine to serve the queries so it doesn't block.
 func (f *Forwarder) Start() (err error) {
+	rand.Seed(time.Now().UnixNano())
+
 	if f.sessions == nil {
 		f.sessions = ttlcache.New(sessionTimeout, 0, nil)
 	}
@@ -483,6 +488,11 @@ func (f *Forwarder) handleQuery(session *Session) bool {
 		return false // Drop as well.
 	}
 
+	// Regenerate a random ID for the query to be forwarded, avoiding conflicts
+	// from multiple clients.
+	session.queryID = query.Header.ID
+	query.Header.ID = uint16(rand.Intn(math.MaxUint16))
+
 	key := query.SessionKey()
 	f.sessions.Set(key, session, ttlcache.DefaultTTL)
 	log.Debugf("added session with key: %s", key)
@@ -569,7 +579,11 @@ func (f *Forwarder) reply(session *Session, resp []byte) {
 		session.timer.Stop()
 	}
 
-	if len(resp) == 0 {
+	if len(resp) > 0 {
+		msg := dnsmsg.RawMsg(resp)
+		msg.SetID(session.queryID)
+		resp = []byte(msg)
+	} else {
 		// Reply with ServFail.
 		msg := dnsmsg.RawMsg(session.query)
 		msg.SetRCode(dnsmessage.RCodeServerFailure)
