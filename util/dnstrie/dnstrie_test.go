@@ -9,6 +9,7 @@ package dnstrie
 
 import (
 	"bytes"
+	"slices"
 	"testing"
 )
 
@@ -161,5 +162,33 @@ func TestMatch2(t *testing.T) {
 			t.Errorf(`Match(%q) = (%q, %t); want (%q, %t)`,
 				item.name, key.String(), ok, item.matchedKey.String(), expected)
 		}
+	}
+}
+
+func TestExport(t *testing.T) {
+	trie := &DNSTrie{}
+
+	if zones := trie.Export(); len(zones) != 0 {
+		t.Errorf(`Export() = %q; want []`, zones)
+	}
+
+	zones := []string{".", "com", "xyz.", "abc.com", "xyz.net", "www.abc.com"}
+	zonesExpected := make([]string, len(zones))
+	for i, z := range zones {
+		zonesExpected[i] = NewKey(z).String()
+		trie.AddZone(z)
+	}
+
+	zonesGot := trie.Export()
+	t.Logf("Export() = %+v", zonesGot)
+
+	if len(zonesGot) != len(zonesExpected) {
+		t.Errorf(`Export() => %d zones; want %d`, len(zonesGot), len(zonesExpected))
+	}
+
+	slices.Sort(zonesGot)
+	slices.Sort(zonesExpected)
+	if !slices.Equal(zonesGot, zonesExpected) {
+		t.Errorf(`Export() = %+v; want %+v`, zonesGot, zonesExpected)
 	}
 }

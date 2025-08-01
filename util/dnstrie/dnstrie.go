@@ -104,3 +104,12 @@ func (t *DNSTrie) Match(name string) (Key, bool) {
 	k, _, ok := t.tree.LongestPrefix(key)
 	return k, ok
 }
+
+func (t *DNSTrie) Export() []string {
+	zones := []string{}
+	t.tree.Walk(func(key []byte, _ any) bool {
+		zones = append(zones, Key(key).String())
+		return true
+	})
+	return zones
+}
