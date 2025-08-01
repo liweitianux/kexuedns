@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 //
-// Copyright (c) 2024 Aaron LI
+// Copyright (c) 2024-2025 Aaron LI
 //
 // DNS Trie based upon Crit-bit Tree
 //
@@ -8,7 +8,6 @@
 package dnstrie
 
 import (
-	"bytes"
 	"strings"
 
 	"kexuedns/util/critbit"
@@ -27,36 +26,48 @@ func init() {
 	}
 }
 
-// DNS trie that combines a hash map and crit-bit tree to support both exact
-// name match and longest zone match.
+// DNS trie for longest zone match.
+//
+// A zone "example.com" must match itself (i.e., "example.com") and any
+// subdomains (e.g., "www.example.com", "abc.def.example.com"), but must not
+// match another zone like "XXXexample.com".
+//
+// In order to archieve the above goal with the Critbit Tree, a zone like
+// "example.com" is transformed to be "moc.elpmaxe." and then inserted into the
+// Critbit Tree.  The domain to be matched is also similarly transformed to
+// perform the matching operation.  In other words, a zone/domain is processed
+// with the following steps:
+//  1. remove the final dot if exists
+//  2. convert to lower case
+//  3. reverse the order
+//  4. append a dot
+//
 // NOTE: Similar to critbit.Tree, it's the consumer's responsibility to
 // protect concurrent accesses if it's needed.
 type DNSTrie struct {
-	hash map[string]nullT
 	tree critbit.Tree
 }
-
-type nullT struct{}
-
-var null = nullT{}
 
 // A key for trie match
 type Key []byte
 
 // Convert a DNS name into a trie lookup key.
 // The input (dname) is decoded and in text format, but not needed to
-// be normalized to lower case.
+// be normalized to lower case, e.g., "www.Example.COM."
 func NewKey(dname string) Key {
-	if !strings.HasSuffix(dname, ".") {
-		dname += "."
-	}
+	// 1. remove the final dot if exists
+	dname = strings.TrimSuffix(dname, ".")
 
-	// Reverse the dname and normalize to lower case.
+	// 2. convert to lower case
+	// 3. reverse the order
 	l := len(dname)
-	key := make([]byte, l)
+	key := make([]byte, l+1)
 	for i, c := range []byte(dname) {
 		key[l-i-1] = keyXTable[c]
 	}
+
+	// 4. append a dot
+	key[l] = '.'
 
 	return Key(key)
 }
@@ -71,34 +82,9 @@ func (k Key) String() string {
 	return string(name)
 }
 
-func (k Key) Equal(kk Key) bool {
-	return bytes.Equal(k, kk)
-}
-
-// Add a name for exact match.
-func (t *DNSTrie) AddName(name string) {
-	key := NewKey(name)
-	if t.hash == nil {
-		t.hash = make(map[string]nullT)
-	}
-	t.hash[string(key)] = null
-}
-
-func (t *DNSTrie) HasName(name string) bool {
-	key := NewKey(name)
-	_, ok := t.hash[string(key)]
-	return ok
-}
-
-func (t *DNSTrie) DeleteName(name string) {
-	key := NewKey(name)
-	delete(t.hash, string(key))
-}
-
-// Add a zone for longest zone match.
 func (t *DNSTrie) AddZone(name string) {
 	key := NewKey(name)
-	t.tree.Set(key, null)
+	t.tree.Set(key, struct{}{})
 }
 
 func (t *DNSTrie) HasZone(name string) bool {
@@ -112,16 +98,9 @@ func (t *DNSTrie) DeleteZone(name string) {
 	t.tree.Delete(key)
 }
 
-// Lookup the name to find a match.
-// If found a match, return the key and a boolean indicating whether it was
-// an exact match; otherwise, return nil and false.
+// Match the name to find the longest matched zone.
 func (t *DNSTrie) Match(name string) (Key, bool) {
 	key := NewKey(name)
-	if _, ok := t.hash[string(key)]; ok {
-		return key, true
-	}
-	if k, _, ok := t.tree.LongestPrefix(key); ok {
-		return k, false
-	}
-	return nil, false
+	k, _, ok := t.tree.LongestPrefix(key)
+	return k, ok
 }
