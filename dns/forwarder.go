@@ -40,12 +40,6 @@ const (
 	dohContentType = "application/dns-message"
 )
 
-var (
-	errQueryTimeout     = errors.New("query timed out")
-	errQueryInvalid     = errors.New("query invalid")
-	errResolverNotFound = errors.New("resolver not found")
-)
-
 type dnsProto int
 
 const (
@@ -512,7 +506,7 @@ func (f *Forwarder) handleQuery(session *Session) bool {
 func (f *Forwarder) query(query *dnsmsg.QueryMsg) error {
 	if f.resolver == nil {
 		log.Debugf("no resolver available")
-		return errResolverNotFound
+		return errors.New("resolver not found")
 	}
 
 	myIP := config.GetMyIP()
