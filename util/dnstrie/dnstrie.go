@@ -84,7 +84,7 @@ func (k Key) String() string {
 
 func (t *DNSTrie) AddZone(name string) {
 	key := NewKey(name)
-	t.tree.Set(key, struct{}{})
+	t.tree.Set(key, name) // store the original name for Export()
 }
 
 func (t *DNSTrie) HasZone(name string) bool {
@@ -107,8 +107,8 @@ func (t *DNSTrie) Match(name string) (Key, bool) {
 
 func (t *DNSTrie) Export() []string {
 	zones := []string{}
-	t.tree.Walk(func(key []byte, _ any) bool {
-		zones = append(zones, Key(key).String())
+	t.tree.Walk(func(_ []byte, value any) bool {
+		zones = append(zones, value.(string))
 		return true
 	})
 	return zones

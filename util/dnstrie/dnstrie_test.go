@@ -178,23 +178,20 @@ func TestExport(t *testing.T) {
 		t.Errorf(`Export() = %q; want []`, zones)
 	}
 
-	zones := []string{".", "com", "xyz.", "abc.com", "xyz.net", "www.abc.com"}
-	zonesExpected := make([]string, len(zones))
-	for i, z := range zones {
-		zonesExpected[i] = NewKey(z).String()
+	zones := []string{".", "Com", "xyz.", "ABC.com", "xyz.net", "www.ABC.com"}
+	for _, z := range zones {
 		trie.AddZone(z)
 	}
 
 	zonesGot := trie.Export()
 	t.Logf("Export() = %+v", zonesGot)
-
-	if len(zonesGot) != len(zonesExpected) {
-		t.Errorf(`Export() => %d zones; want %d`, len(zonesGot), len(zonesExpected))
+	if len(zonesGot) != len(zones) {
+		t.Errorf(`Export() => %d zones; want %d`, len(zonesGot), len(zones))
 	}
 
 	slices.Sort(zonesGot)
-	slices.Sort(zonesExpected)
-	if !slices.Equal(zonesGot, zonesExpected) {
-		t.Errorf(`Export() = %+v; want %+v`, zonesGot, zonesExpected)
+	slices.Sort(zones)
+	if !slices.Equal(zonesGot, zones) {
+		t.Errorf(`Export() = %+v; want %+v`, zonesGot, zones)
 	}
 }
