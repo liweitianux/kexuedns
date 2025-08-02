@@ -76,9 +76,9 @@ func NewResolver(ip string, port uint16, hostname string) (*Resolver, error) {
 }
 
 func (r *Resolver) Query(msg []byte) error {
-	l := len(msg)
-	buf := make([]byte, 2+l)
-	binary.BigEndian.PutUint16(buf, uint16(l))
+	length := len(msg)
+	buf := make([]byte, 2+length)
+	binary.BigEndian.PutUint16(buf, uint16(length))
 	copy(buf[2:], msg)
 
 	retrying := false
@@ -88,7 +88,7 @@ Lretry:
 	}
 	r.client.SetWriteDeadline(time.Now().Add(writeTimeout))
 	n, err := r.client.Write(buf)
-	if err != nil || n != 2+l {
+	if err != nil || n != 2+length {
 		if err == nil {
 			err = errors.New("write incomplete")
 		} else if errors.Is(err, syscall.EPIPE) {
@@ -110,7 +110,7 @@ Lretry:
 	// start reading response
 	go r.read()
 
-	log.Debugf("[%s] sent query (len=2+%d)", r.name, l)
+	log.Debugf("[%s] sent query (len=2+%d)", r.name, length)
 	return nil
 }
 
@@ -250,14 +250,14 @@ func (r *Resolver) read() {
 		}
 
 		// read response content
-		l := binary.BigEndian.Uint16(lbuf)
-		resp := make([]byte, l)
+		length := binary.BigEndian.Uint16(lbuf)
+		resp := make([]byte, length)
 		if _, err := io.ReadFull(r.client, resp); err != nil {
 			log.Errorf("[%s] failed to read response content: %v", r.name, err)
 			break
 		}
 
-		log.Debugf("[%s] received response (len=2+%d)", r.name, l)
+		log.Debugf("[%s] received response (len=2+%d)", r.name, length)
 		r.responses <- resp
 	}
 

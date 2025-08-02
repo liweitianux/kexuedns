@@ -520,17 +520,12 @@ func (f *Forwarder) query(query *dnsmsg.QueryMsg) error {
 	}
 
 	myIP := config.GetMyIP()
+	addr, ok := myIP.GetV4()
 	if query.QType() == dnsmessage.TypeAAAA {
-		addr, ok := myIP.GetV6()
-		if ok {
-			query.SetEdnsSubnet(addr, 0)
-		}
-	} else {
-		// Default to IPv4
-		addr, ok := myIP.GetV4()
-		if ok {
-			query.SetEdnsSubnet(addr, 0)
-		}
+		addr, ok = myIP.GetV6()
+	}
+	if ok {
+		query.SetEdnsSubnet(addr, 0)
 	}
 	log.Debugf("query: %+v", query)
 
@@ -554,7 +549,7 @@ func (f *Forwarder) receive() {
 	for {
 		resp, ok := <-f.responses
 		if !ok {
-			log.Debugf("channel closed")
+			log.Debugf("channel closed; stop receiving response")
 			f.wg.Done()
 			return
 		}
