@@ -51,14 +51,14 @@ const (
 	dnsProtoDoH // DNS-over-HTTPS
 )
 
-// TODO: router
 // TODO: cache
 type Forwarder struct {
+	Router Router // Resolver routing
+
 	Listen    *ListenConfig // UDP+TCP protocols
 	ListenDoT *ListenConfig // DoT protocol
 	ListenDoH *ListenConfig // DoH protocol
 
-	resolver  *Resolver // TODO: => resolver router
 	responses chan []byte
 	sessions  *ttlcache.Cache // dnsmsg.SessionKey() => *Session
 
@@ -206,18 +206,8 @@ func (f *Forwarder) makeListenConfig(
 	return lc, nil
 }
 
-func (f *Forwarder) SetResolver(r *Resolver) {
-	if f.resolver != nil {
-		f.resolver.Stop()
-	}
-
-	f.resolver = r
-}
-
 func (f *Forwarder) Stop() {
-	if f.resolver != nil {
-		f.resolver.Stop()
-	}
+	f.Router.Stop()
 
 	if f.cancel != nil {
 		f.cancel()
@@ -509,8 +499,10 @@ func (f *Forwarder) handleQuery(session *Session) bool {
 // Query the backend resolver.
 // NOTE: The response is handled asynchronously by receive().
 func (f *Forwarder) query(query *dnsmsg.QueryMsg) error {
-	if f.resolver == nil {
-		log.Debugf("no resolver available")
+	qname := query.QName()
+	resolver, _ := f.Router.GetResolver(qname)
+	if resolver == nil {
+		log.Debugf("no resolver found for qname [%s]", qname)
 		return errors.New("resolver not found")
 	}
 
@@ -530,9 +522,9 @@ func (f *Forwarder) query(query *dnsmsg.QueryMsg) error {
 		return err
 	}
 
-	f.resolver.Start(f.responses) // Start the resolver if not
+	resolver.Start(f.responses) // Start the resolver if not yet
 
-	return f.resolver.Query(msg)
+	return resolver.Query(msg)
 }
 
 // Receive responses from the backend resolver and dispatch to clients.
