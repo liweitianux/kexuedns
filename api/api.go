@@ -49,12 +49,16 @@ func (h *ApiHandler) start(w http.ResponseWriter, r *http.Request) {
 	if r := h.config.Resolver; r == nil {
 		log.Warnf("no resolver configured yet")
 	} else {
-		resolver, err := dns.NewResolver(r.IP, r.Port, r.Hostname)
-		if err != nil {
-			log.Warnf("failed to create resolver: %+v, error: %v", r, err)
+		resolver := &dns.ResolverExport{
+			Name:     "default",
+			IP:       r.IP,
+			Port:     r.Port,
+			Hostname: r.Hostname,
+		}
+		if err := h.forwarder.Router.SetResolver(resolver); err != nil {
+			log.Warnf("failed to set resolver: %+v, error: %v", r, err)
 		} else {
-			h.forwarder.SetResolver(resolver)
-			log.Infof("set resolver: %+v", r)
+			log.Infof("set default resolver: %+v", r)
 		}
 	}
 
