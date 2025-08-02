@@ -8,6 +8,7 @@
 package dns
 
 import (
+	"context"
 	"crypto/tls"
 	"encoding/binary"
 	"errors"
@@ -36,16 +37,21 @@ const (
 
 // NOTE: Only support DoT (DNS-over-TLS) protocol for security and simplicity.
 type Resolver struct {
-	name      string // name to identify in log messages
-	ip        netip.Addr
-	port      uint16
-	hostname  string // name to verify the TLS certificate
-	client    *tls.Conn
+	name     string // name to identify in log messages
+	ip       netip.Addr
+	port     uint16
+	hostname string // name to verify the TLS certificate
+
+	client     *tls.Conn
+	clientLock sync.Mutex // protect concurrent connect()/disconnect()
+
 	responses chan []byte
+	running   bool
 	reading   bool
-	receiving bool
-	wg        sync.WaitGroup
-	mutex     sync.Mutex
+
+	cancel context.CancelFunc // stop the resolver
+	wg     sync.WaitGroup
+	lock   sync.Mutex // protect concurrent Start()/Stop()
 }
 
 func NewResolver(ip string, port uint16, hostname string) (*Resolver, error) {
@@ -114,47 +120,66 @@ Lretry:
 	return nil
 }
 
-func (r *Resolver) Receive(ch chan []byte) {
-	if r.receiving {
-		panic("already started receiving")
+func (r *Resolver) Start(forwarder chan []byte) {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+
+	if r.running {
+		return
 	}
 
-	r.responses = make(chan []byte, channelSize)
+	ctx, cancel := context.WithCancel(context.Background())
 
 	r.wg.Add(1)
-	r.receiving = true
+	go r.relay(ctx, forwarder)
+
+	r.cancel = cancel
+	r.running = true
+	log.Infof("[%s] started", r.name)
+}
+
+func (r *Resolver) Stop() {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+
+	if !r.running {
+		return
+	}
+
+	r.cancel()
+	r.disconnect()
+	r.wg.Wait()
+
+	r.running = false
+	log.Infof("[%s] stopped", r.name)
+}
+
+// Relay the responses to the forwarder.
+func (r *Resolver) relay(ctx context.Context, forwarder chan []byte) {
+	log.Debugf("[%s] started relaying", r.name)
+	r.responses = make(chan []byte, channelSize)
+
+	go func() {
+		// Wait for cancellation from Stop().
+		<-ctx.Done()
+		close(r.responses)
+	}()
 
 	for {
 		msg, ok := <-r.responses
 		if !ok {
-			log.Debugf("[%s] responses channel closed", r.name)
-			break
+			log.Debugf("[%s] channel closed; stop relaying", r.name)
+			r.wg.Done()
+			return
 		}
-		ch <- msg
+
+		forwarder <- msg
 	}
-
-	r.receiving = false
-	r.wg.Done()
-}
-
-// Disconnect and close channels.
-func (r *Resolver) Close() {
-	r.disconnect()
-
-	if r.responses == nil {
-		return
-	}
-
-	close(r.responses)
-	r.responses = nil
-	r.wg.Wait()
-
-	log.Infof("[%s] closed", r.name)
 }
 
 func (r *Resolver) disconnect() {
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
+	r.clientLock.Lock()
+	defer r.clientLock.Unlock()
 
 	if r.client == nil {
 		return
@@ -167,8 +192,8 @@ func (r *Resolver) disconnect() {
 
 // Connect to the resolver and perform TLS handshake.
 func (r *Resolver) connect() error {
-	r.mutex.Lock()
-	defer r.mutex.Unlock()
+	r.clientLock.Lock()
+	defer r.clientLock.Unlock()
 
 	if r.client != nil {
 		return nil
