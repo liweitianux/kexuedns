@@ -223,11 +223,6 @@ func (f *Forwarder) Stop() {
 		f.cancel()
 	}
 
-	if f.responses != nil {
-		close(f.responses)
-		f.responses = nil
-	}
-
 	f.wg.Wait()
 	log.Infof("forwarder stopped")
 }
@@ -294,7 +289,7 @@ func (f *Forwarder) Start() (err error) {
 	}
 
 	f.wg.Add(1)
-	go f.receive()
+	go f.receive(ctx)
 
 	return
 }
@@ -541,8 +536,15 @@ func (f *Forwarder) query(query *dnsmsg.QueryMsg) error {
 }
 
 // Receive responses from the backend resolver and dispatch to clients.
-func (f *Forwarder) receive() {
+func (f *Forwarder) receive(ctx context.Context) {
+	log.Debugf("started receiving responses")
 	f.responses = make(chan []byte)
+
+	go func() {
+		// Wait for cancellation from Stop().
+		<-ctx.Done()
+		close(f.responses)
+	}()
 
 	for {
 		resp, ok := <-f.responses
