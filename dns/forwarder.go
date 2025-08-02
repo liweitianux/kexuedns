@@ -208,19 +208,19 @@ func (f *Forwarder) makeListenConfig(
 
 func (f *Forwarder) SetResolver(r *Resolver) {
 	if f.resolver != nil {
-		f.resolver.Close()
+		f.resolver.Stop()
 	}
 
 	f.resolver = r
 }
 
 func (f *Forwarder) Stop() {
-	if f.cancel != nil {
-		f.cancel()
+	if f.resolver != nil {
+		f.resolver.Stop()
 	}
 
-	if f.resolver != nil {
-		f.resolver.Close()
+	if f.cancel != nil {
+		f.cancel()
 	}
 
 	if f.responses != nil {
@@ -535,16 +535,14 @@ func (f *Forwarder) query(query *dnsmsg.QueryMsg) error {
 		return err
 	}
 
+	f.resolver.Start(f.responses) // Start the resolver if not
+
 	return f.resolver.Query(msg)
 }
 
 // Receive responses from the backend resolver and dispatch to clients.
 func (f *Forwarder) receive() {
 	f.responses = make(chan []byte)
-
-	if f.resolver != nil {
-		go f.resolver.Receive(f.responses)
-	}
 
 	for {
 		resp, ok := <-f.responses
