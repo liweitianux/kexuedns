@@ -51,6 +51,13 @@ type Resolver struct {
 	lock    sync.Mutex // protect concurrent Start()/Stop()
 }
 
+type ResolverExport struct {
+	Name     string `json:"name"`     // name to identify in log messages
+	IP       string `json:"ip"`       // resolver IPv4/IPv6 address
+	Port     uint16 `json:"port"`     // resolver port
+	Hostname string `json:"hostname"` // name to verify the TLS certificate
+}
+
 func NewResolver(ip string, port uint16, hostname string) (*Resolver, error) {
 	addr, err := netip.ParseAddr(ip)
 	if err != nil {
@@ -72,6 +79,15 @@ func NewResolver(ip string, port uint16, hostname string) (*Resolver, error) {
 		hostname: hostname,
 	}
 	return r, nil
+}
+
+func (r *Resolver) Export() *ResolverExport {
+	return &ResolverExport{
+		Name:     r.name,
+		IP:       r.ip.String(),
+		Port:     r.port,
+		Hostname: r.hostname,
+	}
 }
 
 func (r *Resolver) Query(msg []byte) error {
