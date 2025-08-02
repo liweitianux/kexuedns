@@ -82,33 +82,60 @@ func (k Key) String() string {
 	return string(name[1:]) // exclude the appended dot
 }
 
-func (t *DNSTrie) AddZone(name string) {
-	key := NewKey(name)
-	t.tree.Set(key, name) // store the original name for Export()
+type node struct {
+	name  string
+	value any
 }
 
-func (t *DNSTrie) HasZone(name string) bool {
+// Add the zone (zone) with value (value) to the Trie.
+// Return the old value if the key existed, and a boolean indicating whether
+// the key has been updated (true) or created (false).
+func (t *DNSTrie) AddZone(name string, value any) (oldValue any, updated bool) {
 	key := NewKey(name)
-	_, ok := t.tree.Get(key)
-	return ok
+	vnode := &node{
+		name:  name, // store the original name for Export()
+		value: value,
+	}
+	old, updated := t.tree.Set(key, vnode)
+	if updated {
+		oldValue = old.(*node).value
+	}
+	return
 }
 
-func (t *DNSTrie) DeleteZone(name string) {
+func (t *DNSTrie) GetZone(name string) (value any, ok bool) {
 	key := NewKey(name)
-	t.tree.Delete(key)
+	vnode, ok := t.tree.Get(key)
+	if ok {
+		value = vnode.(*node).value
+	}
+	return
+}
+
+func (t *DNSTrie) DeleteZone(name string) (value any, ok bool) {
+	key := NewKey(name)
+	vnode, ok := t.tree.Delete(key)
+	if ok {
+		value = vnode.(*node).value
+	}
+	return
 }
 
 // Match the name to find the longest matched zone.
-func (t *DNSTrie) Match(name string) (Key, bool) {
+func (t *DNSTrie) Match(name string) (value any, ok bool) {
 	key := NewKey(name)
-	k, _, ok := t.tree.LongestPrefix(key)
-	return k, ok
+	_, vnode, ok := t.tree.LongestPrefix(key)
+	if ok {
+		value = vnode.(*node).value
+	}
+	return
 }
 
-func (t *DNSTrie) Export() []string {
-	zones := []string{}
+func (t *DNSTrie) Export() map[string]any {
+	zones := map[string]any{}
 	t.tree.Walk(func(_ []byte, value any) bool {
-		zones = append(zones, value.(string))
+		vnode := value.(*node)
+		zones[vnode.name] = vnode.value
 		return true
 	})
 	return zones
