@@ -49,12 +49,12 @@ type DNSTrie struct {
 }
 
 // A key for trie match
-type Key []byte
+type dkey []byte
 
 // Convert a DNS name into a trie lookup key.
 // The input (dname) is decoded and in text format, but not needed to
 // be normalized to lower case, e.g., "www.Example.COM."
-func NewKey(dname string) Key {
+func newDkey(dname string) dkey {
 	// 1. remove the final dot if exists
 	dname = strings.TrimSuffix(dname, ".")
 
@@ -69,10 +69,10 @@ func NewKey(dname string) Key {
 	// 4. append a dot
 	key[l] = '.'
 
-	return Key(key)
+	return dkey(key)
 }
 
-func (k Key) String() string {
+func (k dkey) String() string {
 	// Reverse it back for display.
 	l := len(k)
 	name := make([]byte, l)
@@ -91,7 +91,7 @@ type node struct {
 // Return the old value if the key existed, and a boolean indicating whether
 // the key has been updated (true) or created (false).
 func (t *DNSTrie) AddZone(name string, value any) (oldValue any, updated bool) {
-	key := NewKey(name)
+	key := newDkey(name)
 	vnode := &node{
 		name:  name, // store the original name for Export()
 		value: value,
@@ -104,7 +104,7 @@ func (t *DNSTrie) AddZone(name string, value any) (oldValue any, updated bool) {
 }
 
 func (t *DNSTrie) GetZone(name string) (value any, ok bool) {
-	key := NewKey(name)
+	key := newDkey(name)
 	vnode, ok := t.tree.Get(key)
 	if ok {
 		value = vnode.(*node).value
@@ -113,7 +113,7 @@ func (t *DNSTrie) GetZone(name string) (value any, ok bool) {
 }
 
 func (t *DNSTrie) DeleteZone(name string) (value any, ok bool) {
-	key := NewKey(name)
+	key := newDkey(name)
 	vnode, ok := t.tree.Delete(key)
 	if ok {
 		value = vnode.(*node).value
@@ -123,7 +123,7 @@ func (t *DNSTrie) DeleteZone(name string) (value any, ok bool) {
 
 // Match the name to find the longest matched zone.
 func (t *DNSTrie) Match(name string) (value any, ok bool) {
-	key := NewKey(name)
+	key := newDkey(name)
 	_, vnode, ok := t.tree.LongestPrefix(key)
 	if ok {
 		value = vnode.(*node).value

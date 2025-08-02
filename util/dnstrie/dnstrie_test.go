@@ -11,7 +11,7 @@ import (
 	"testing"
 )
 
-func TestKey1(t *testing.T) {
+func TestDkey1(t *testing.T) {
 	items := []struct {
 		name string
 		key  string
@@ -35,12 +35,12 @@ func TestKey1(t *testing.T) {
 		{name: "_-[].com", key: "moc.][-_.", str: "_-[].com"},
 	}
 	for _, item := range items {
-		key := NewKey(item.name)
+		key := newDkey(item.name)
 		if k := string(key); k != item.key {
-			t.Errorf(`NewKey(%q) = %q; want %q`, item.name, k, item.key)
+			t.Errorf(`newDkey(%q) = %q; want %q`, item.name, k, item.key)
 		}
 		if s := key.String(); s != item.str {
-			t.Errorf(`NewKey(%q).String() = %q; want %q`, item.name, s, item.str)
+			t.Errorf(`newDkey(%q).String() = %q; want %q`, item.name, s, item.str)
 		}
 	}
 }
