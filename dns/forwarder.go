@@ -540,30 +540,24 @@ func (f *Forwarder) receive(ctx context.Context) {
 	log.Debugf("started receiving responses")
 	f.responses = make(chan []byte)
 
-	go func() {
-		// Wait for cancellation from Stop().
-		<-ctx.Done()
-		close(f.responses)
-	}()
-
 	for {
-		resp, ok := <-f.responses
-		if !ok {
-			log.Debugf("channel closed; stop receiving response")
+		select {
+		case <-ctx.Done():
+			close(f.responses)
+			log.Debugf("stop receiving responses")
 			f.wg.Done()
 			return
-		}
-
-		key, err := dnsmsg.RawMsg(resp).SessionKey()
-		if err != nil {
-			log.Warnf("invalid response: %v", err)
-			continue
-		}
-
-		if v, ok := f.sessions.Pop(key); ok {
-			go f.reply(v.(*Session), resp)
-		} else {
-			log.Warnf("session [%s] not found or expired", key)
+		case resp := <-f.responses:
+			key, err := dnsmsg.RawMsg(resp).SessionKey()
+			if err != nil {
+				log.Warnf("invalid response: %v", err)
+			} else {
+				if v, ok := f.sessions.Pop(key); ok {
+					go f.reply(v.(*Session), resp)
+				} else {
+					log.Warnf("session [%s] not found or expired", key)
+				}
+			}
 		}
 	}
 }

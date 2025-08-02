@@ -159,21 +159,16 @@ func (r *Resolver) relay(ctx context.Context, forwarder chan []byte) {
 	log.Debugf("[%s] started relaying", r.name)
 	r.responses = make(chan []byte, channelSize)
 
-	go func() {
-		// Wait for cancellation from Stop().
-		<-ctx.Done()
-		close(r.responses)
-	}()
-
 	for {
-		msg, ok := <-r.responses
-		if !ok {
-			log.Debugf("[%s] channel closed; stop relaying", r.name)
+		select {
+		case <-ctx.Done():
+			close(r.responses)
+			log.Debugf("[%s] stop relaying", r.name)
 			r.wg.Done()
 			return
+		case msg := <-r.responses:
+			forwarder <- msg
 		}
-
-		forwarder <- msg
 	}
 }
 
