@@ -118,8 +118,9 @@ func (t *Tree) Get(key []byte) (any, bool) {
 
 // Insert/update the key and value in the tree.
 // If the key already exists and replace is true, the old value is replaced
-// and returned.
-func (t *Tree) insert(key []byte, value any, replace bool) (any, bool) {
+// and returned.  The boolean indicating whether the key has been created (true)
+// or updated (false).
+func (t *Tree) insert(key []byte, value any, replace bool) (oldValue any, created bool) {
 	node := t.root
 	if node == nil {
 		// empty tree
@@ -129,7 +130,7 @@ func (t *Tree) insert(key []byte, value any, replace bool) (any, bool) {
 		}
 		copy(nodeE.key, key)
 		t.root = nodeE
-		return nil, true
+		return nil, true // created
 	}
 
 	// Walk the tree for the best memeber.
@@ -224,23 +225,24 @@ NewNode:
 		panic("newNodeI.children invalid")
 	}
 
-	return nil, true // inserted
+	return nil, true // created
 }
 
 // Insert the key (key) in the tree and associate it with the value (value).
 // Return a boolean indicating whether the key has been inserted.
 // If the key already exists, Insert() will not modify the tree and
 // return false.
-func (t *Tree) Insert(key []byte, value any) bool {
-	_, ok := t.insert(key, value, false /* replace */)
-	return ok
+func (t *Tree) Insert(key []byte, value any) (ok bool) {
+	_, ok = t.insert(key, value, false /* replace */)
+	return
 }
 
 // Set the key (key) in the tree and update its value if it exists.
-// Return (nil, true) if the key didn't exist yet; otherwise, return the old
-// value and false.
-func (t *Tree) Set(key []byte, value any) (any, bool) {
-	return t.insert(key, value, true /* replace */)
+// Return the old value if the key existed, and a boolean indicating whether
+// the key has been updated (true) or created (false).
+func (t *Tree) Set(key []byte, value any) (oldValue any, updated bool) {
+	oldValue, created := t.insert(key, value, true /* replace */)
+	return oldValue, !created
 }
 
 // Delete the key (key) from the tree.

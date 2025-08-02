@@ -132,16 +132,16 @@ func TestSet1(t *testing.T) {
 		{key: "hoho", value: 5, duplicate: true, oldValue: 4},
 	}
 	for _, item := range items {
-		old, ok := tree.Set([]byte(item.key), item.value)
+		old, updated := tree.Set([]byte(item.key), item.value)
 		if item.duplicate {
-			if ok || old != item.oldValue {
-				t.Errorf(`Set(%q, %q) = (%q, %t); want (%q, false)`,
-					item.key, item.value, old, ok, item.oldValue)
+			if !updated || old != item.oldValue {
+				t.Errorf(`Set(%q, %q) = (%q, %t); want (%q, true)`,
+					item.key, item.value, old, updated, item.oldValue)
 			}
 		} else {
-			if !ok || old != nil {
-				t.Errorf(`Set(%q, %q) = (%q, %t); want (nil, true)`,
-					item.key, item.value, old, ok)
+			if updated || old != nil {
+				t.Errorf(`Set(%q, %q) = (%q, %t); want (nil, false)`,
+					item.key, item.value, old, updated)
 			}
 		}
 	}
