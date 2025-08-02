@@ -24,8 +24,7 @@ import (
 )
 
 const (
-	dotPort     = 853 // default DoT port
-	channelSize = 100
+	dotPort = 853 // default DoT port
 
 	readTimeout  = 15 * time.Second
 	writeTimeout = 5 * time.Second
@@ -42,16 +41,14 @@ type Resolver struct {
 	port     uint16
 	hostname string // name to verify the TLS certificate
 
-	client     *tls.Conn
-	clientLock sync.Mutex // protect concurrent connect()/disconnect()
+	client      *tls.Conn
+	clientLock  sync.Mutex    // protect concurrent connect()/disconnect()
+	connections chan struct{} // notify new connections
 
-	responses chan []byte
-	running   bool
-	reading   bool
-
-	cancel context.CancelFunc // stop the resolver
-	wg     sync.WaitGroup
-	lock   sync.Mutex // protect concurrent Start()/Stop()
+	running bool
+	cancel  context.CancelFunc // stop the resolver
+	wg      sync.WaitGroup
+	lock    sync.Mutex // protect concurrent Start()/Stop()
 }
 
 func NewResolver(ip string, port uint16, hostname string) (*Resolver, error) {
@@ -74,10 +71,6 @@ func NewResolver(ip string, port uint16, hostname string) (*Resolver, error) {
 		port:     port,
 		hostname: hostname,
 	}
-	// Perform the connection to catch the possible errors early.
-	if err := r.connect(); err != nil {
-		return nil, err
-	}
 	return r, nil
 }
 
@@ -87,11 +80,10 @@ func (r *Resolver) Query(msg []byte) error {
 	binary.BigEndian.PutUint16(buf, uint16(length))
 	copy(buf[2:], msg)
 
-	retrying := false
-Lretry:
 	if err := r.connect(); err != nil {
 		return err
 	}
+
 	r.client.SetWriteDeadline(time.Now().Add(writeTimeout))
 	n, err := r.client.Write(buf)
 	if err != nil || n != 2+length {
@@ -104,17 +96,8 @@ Lretry:
 		}
 		r.disconnect()
 
-		if !retrying {
-			log.Warnf("[%s] retrying the query", r.name)
-			retrying = true
-			goto Lretry
-		}
-
 		return err
 	}
-
-	// start reading response
-	go r.read()
 
 	log.Debugf("[%s] sent query (len=2+%d)", r.name, length)
 	return nil
@@ -126,6 +109,10 @@ func (r *Resolver) Start(forwarder chan []byte) {
 
 	if r.running {
 		return
+	}
+
+	if r.connections == nil {
+		r.connections = make(chan struct{})
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -148,8 +135,14 @@ func (r *Resolver) Stop() {
 
 	r.cancel()
 	r.disconnect()
-	r.wg.Wait()
 
+	// Empty the connections channel.
+	select {
+	case <-r.connections:
+	default:
+	}
+
+	r.wg.Wait()
 	r.running = false
 	log.Infof("[%s] stopped", r.name)
 }
@@ -157,17 +150,15 @@ func (r *Resolver) Stop() {
 // Relay the responses to the forwarder.
 func (r *Resolver) relay(ctx context.Context, forwarder chan []byte) {
 	log.Debugf("[%s] started relaying", r.name)
-	r.responses = make(chan []byte, channelSize)
 
 	for {
 		select {
 		case <-ctx.Done():
-			close(r.responses)
 			log.Debugf("[%s] stop relaying", r.name)
 			r.wg.Done()
 			return
-		case msg := <-r.responses:
-			forwarder <- msg
+		case <-r.connections:
+			r.read(forwarder)
 		}
 	}
 }
@@ -237,21 +228,13 @@ func (r *Resolver) connect() error {
 		cs.ServerName, cs.NegotiatedProtocol)
 
 	r.client = conn
+	r.connections <- struct{}{}
+
 	return nil
 }
 
-// Read responses from resolver.
-// NOTE: Close the connection would break the reading.
-func (r *Resolver) read() {
-	if r.client == nil {
-		panic("not connected yet")
-	}
-	if r.reading {
-		return
-	}
-
-	r.wg.Add(1)
-	r.reading = true
+// Read responses from resolver and send to forwarder.
+func (r *Resolver) read(forwarder chan []byte) {
 	log.Debugf("[%s] started reading", r.name)
 
 	for {
@@ -278,12 +261,9 @@ func (r *Resolver) read() {
 		}
 
 		log.Debugf("[%s] received response (len=2+%d)", r.name, length)
-		r.responses <- resp
+		forwarder <- resp
 	}
 
-	r.reading = false
-	log.Debugf("[%s] stopped reading", r.name)
-
 	r.disconnect()
-	r.wg.Done()
+	log.Debugf("[%s] stopped reading", r.name)
 }
