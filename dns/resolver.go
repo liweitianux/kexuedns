@@ -163,22 +163,6 @@ func (r *Resolver) Stop() {
 	log.Infof("[%s] stopped", r.name)
 }
 
-// Relay the responses to the forwarder.
-func (r *Resolver) relay(ctx context.Context, forwarder chan []byte) {
-	log.Debugf("[%s] started relaying", r.name)
-
-	for {
-		select {
-		case <-ctx.Done():
-			log.Debugf("[%s] stop relaying", r.name)
-			r.wg.Done()
-			return
-		case <-r.connections:
-			r.read(forwarder)
-		}
-	}
-}
-
 func (r *Resolver) disconnect() {
 	r.clientLock.Lock()
 	defer r.clientLock.Unlock()
@@ -247,6 +231,22 @@ func (r *Resolver) connect() error {
 	r.connections <- struct{}{}
 
 	return nil
+}
+
+// Relay the responses to the forwarder.
+func (r *Resolver) relay(ctx context.Context, forwarder chan []byte) {
+	log.Debugf("[%s] started relaying", r.name)
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Debugf("[%s] stop relaying", r.name)
+			r.wg.Done()
+			return
+		case <-r.connections:
+			r.read(forwarder)
+		}
+	}
 }
 
 // Read responses from resolver and send to forwarder.
