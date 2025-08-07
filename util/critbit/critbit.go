@@ -17,7 +17,7 @@
 // TODO:
 // - Implement a Set data structure that only store the keys, so that the
 //   nodeExternal struct can be trimmed to save memory.
-// - Is it possible to replace the iNode interface with tagged unsafe.Pointer()?
+// - Is it possible to replace the treeNode interface with tagged unsafe.Pointer()?
 //   That would help reduce memory usage.
 //
 
@@ -31,13 +31,13 @@ import (
 	"strconv"
 )
 
-type iNode interface {
+type treeNode interface {
 	isInternal() bool
 }
 
 type nodeInternal struct {
 	// NOTE: both are non-nil in a tree.
-	children [2]iNode
+	children [2]treeNode
 	// The index of the differing byte.
 	index int
 	// The mask of the differing byte, all the bits except the critical bit
@@ -87,7 +87,7 @@ func (n *nodeExternal) dump() string {
 // accesses.  It's left for the consumer to choose the proper locks whenever
 // concurrency is needed.
 type Tree struct {
-	root iNode
+	root treeNode
 }
 
 // Get the value for key (key).
@@ -254,7 +254,7 @@ func (t *Tree) Delete(key []byte) (any, bool) {
 
 	// Walk the tree for the best candidate to delete.
 	wherep := &t.root       // in parent node
-	var whereq *iNode       // in grandparent node
+	var whereq *treeNode    // in grandparent node
 	var nodeI *nodeInternal // the parent node
 	var direction int
 	for {
@@ -353,7 +353,7 @@ func (t *Tree) LongestPrefixR(key []byte) ([]byte, any, bool) {
 	return t.longestPrefixR(t.root, key)
 }
 
-func (t *Tree) longestPrefixR(node iNode, key []byte) ([]byte, any, bool) {
+func (t *Tree) longestPrefixR(node treeNode, key []byte) ([]byte, any, bool) {
 	switch n := node.(type) {
 	case *nodeExternal:
 		if bytes.HasPrefix(key, n.key) {
@@ -389,7 +389,7 @@ func (t *Tree) Walk(fn WalkFn) bool {
 	return t.walk(t.root, fn)
 }
 
-func (t *Tree) walk(node iNode, fn WalkFn) bool {
+func (t *Tree) walk(node treeNode, fn WalkFn) bool {
 	switch n := node.(type) {
 	case *nodeExternal:
 		return fn(n.key, n.value)
@@ -444,7 +444,7 @@ func (t *Tree) WalkPrefixed(prefix []byte, fn WalkFn) bool {
 	return t.walkPrefixed(top, prefix, fn)
 }
 
-func (t *Tree) walkPrefixed(top iNode, prefix []byte, fn WalkFn) bool {
+func (t *Tree) walkPrefixed(top treeNode, prefix []byte, fn WalkFn) bool {
 	switch n := top.(type) {
 	case *nodeExternal:
 		if !bytes.HasPrefix(n.key, prefix) {
@@ -474,7 +474,7 @@ func (t *Tree) Dump(w io.Writer) {
 	t.dump(w, t.root, false, "")
 }
 
-func (t *Tree) dump(w io.Writer, node iNode, right bool, prefix string) {
+func (t *Tree) dump(w io.Writer, node treeNode, right bool, prefix string) {
 	mypreifx := prefix
 	if right {
 		mypreifx = prefix[:len(prefix)-1] + "`"
