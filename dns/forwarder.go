@@ -431,8 +431,8 @@ func (f *Forwarder) handleTCP(ctx context.Context, conn net.Conn) {
 		}
 		log.Debugf("handle %s query from %s", protoName, conn.RemoteAddr())
 		// read query length
-		lbuf := make([]byte, 2)
-		if _, err := io.ReadFull(conn, lbuf); err != nil {
+		var length uint16
+		if err := binary.Read(conn, binary.BigEndian, &length); err != nil {
 			if errors.Is(err, io.EOF) {
 				log.Debugf("remote closed connection")
 			} else if errors.Is(err, net.ErrClosed) {
@@ -443,7 +443,6 @@ func (f *Forwarder) handleTCP(ctx context.Context, conn net.Conn) {
 			return
 		}
 		// read query content
-		length := binary.BigEndian.Uint16(lbuf)
 		msg := make([]byte, length)
 		if _, err := io.ReadFull(conn, msg); err != nil {
 			log.Errorf("failed to read query content: %v", err)

@@ -255,8 +255,8 @@ func (r *Resolver) read(forwarder chan []byte) {
 
 	for {
 		// read response length
-		lbuf := make([]byte, 2)
-		if _, err := io.ReadFull(r.client, lbuf); err != nil {
+		var length uint16
+		if err := binary.Read(r.client, binary.BigEndian, &length); err != nil {
 			if errors.Is(err, io.EOF) {
 				log.Debugf("[%s] remote closed socket", r.name)
 			} else if errors.Is(err, net.ErrClosed) {
@@ -269,7 +269,6 @@ func (r *Resolver) read(forwarder chan []byte) {
 		}
 
 		// read response content
-		length := binary.BigEndian.Uint16(lbuf)
 		resp := make([]byte, length)
 		if _, err := io.ReadFull(r.client, resp); err != nil {
 			log.Errorf("[%s] failed to read response content: %v", r.name, err)
