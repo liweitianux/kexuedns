@@ -24,8 +24,6 @@ import (
 )
 
 const (
-	dotPort = 853 // default DoT port
-
 	readTimeout  = 15 * time.Second
 	writeTimeout = 5 * time.Second
 
@@ -61,22 +59,19 @@ func NewResolverFromExport(re *ResolverExport) (DNSResolver, error) {
 		return nil, err
 	}
 
-	port := re.Port
-	if port == 0 {
-		port = dotPort
-	}
+	addrport := netip.AddrPortFrom(addr, re.Port)
 	name := re.Name
 	if name == "" {
-		name = re.Hostname
-	}
-	if name == "" {
-		name = netip.AddrPortFrom(addr, port).String()
+		if re.Hostname != "" {
+			name = re.Hostname
+		} else {
+			name = addrport.String()
+		}
 	}
 
 	r := &ResolverDoT{
 		name:     name,
-		ip:       addr,
-		port:     port,
+		address:  addrport,
 		hostname: re.Hostname,
 	}
 	return r, nil
@@ -84,8 +79,7 @@ func NewResolverFromExport(re *ResolverExport) (DNSResolver, error) {
 
 type ResolverDoT struct {
 	name     string
-	ip       netip.Addr
-	port     uint16
+	address  netip.AddrPort
 	hostname string
 
 	client      *tls.Conn
@@ -101,8 +95,8 @@ type ResolverDoT struct {
 func (r *ResolverDoT) Export() *ResolverExport {
 	return &ResolverExport{
 		Name:     r.name,
-		IP:       r.ip.String(),
-		Port:     r.port,
+		IP:       r.address.Addr().String(),
+		Port:     r.address.Port(),
 		Hostname: r.hostname,
 	}
 }
@@ -202,11 +196,7 @@ func (r *ResolverDoT) connect() error {
 		return nil
 	}
 
-	raddr := net.TCPAddr{
-		IP:   net.IP(r.ip.AsSlice()),
-		Port: int(r.port),
-	}
-	tconn, err := net.DialTCP("tcp", nil, &raddr)
+	tconn, err := net.DialTCP("tcp", nil, net.TCPAddrFromAddrPort(r.address))
 	if err != nil {
 		log.Errorf("[%s] tcp dial failed: %v", r.name, err)
 		return err
