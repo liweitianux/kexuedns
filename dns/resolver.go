@@ -34,31 +34,27 @@ const (
 	keepaliveCount    = 3
 )
 
-// NOTE: Only support DoT (DNS-over-TLS) protocol for security and simplicity.
-type Resolver struct {
-	name     string // name to identify in log messages
-	ip       netip.Addr
-	port     uint16
-	hostname string // name to verify the TLS certificate
-
-	client      *tls.Conn
-	clientLock  sync.Mutex    // protect concurrent connect()/disconnect()
-	connections chan struct{} // notify new connections
-
-	running bool
-	cancel  context.CancelFunc // stop the resolver
-	wg      sync.WaitGroup
-	lock    sync.Mutex // protect concurrent Start()/Stop()
+type DNSResolver interface {
+	Export() *ResolverExport
+	Start(forwarder chan []byte)
+	Stop()
+	Query(msg []byte) error
 }
 
 type ResolverExport struct {
-	Name     string `json:"name"`     // name to identify in log messages
-	IP       string `json:"ip"`       // resolver IPv4/IPv6 address
-	Port     uint16 `json:"port"`     // resolver port
-	Hostname string `json:"hostname"` // name to verify the TLS certificate
+	// Name to identify in log messages
+	Name string `json:"name"`
+	// Resolver IPv4/IPv6 address
+	IP string `json:"ip"`
+	// Resolver port
+	Port uint16 `json:"port"`
+	// Name to verify the TLS certificate
+	Hostname string `json:"hostname"`
 }
 
-func NewResolverFromExport(re *ResolverExport) (*Resolver, error) {
+// TODO: DoH (HTTPS) with auth (basic, bearer)
+// TODO: UDP + TCP
+func NewResolverFromExport(re *ResolverExport) (DNSResolver, error) {
 	addr, err := netip.ParseAddr(re.IP)
 	if err != nil {
 		log.Errorf("invalid IP address (%s): %v", re.IP, err)
@@ -77,7 +73,7 @@ func NewResolverFromExport(re *ResolverExport) (*Resolver, error) {
 		name = netip.AddrPortFrom(addr, port).String()
 	}
 
-	r := &Resolver{
+	r := &ResolverDoT{
 		name:     name,
 		ip:       addr,
 		port:     port,
@@ -86,7 +82,23 @@ func NewResolverFromExport(re *ResolverExport) (*Resolver, error) {
 	return r, nil
 }
 
-func (r *Resolver) Export() *ResolverExport {
+type ResolverDoT struct {
+	name     string
+	ip       netip.Addr
+	port     uint16
+	hostname string
+
+	client      *tls.Conn
+	clientLock  sync.Mutex    // protect concurrent connect()/disconnect()
+	connections chan struct{} // notify new connections
+
+	running bool
+	cancel  context.CancelFunc // stop the resolver
+	wg      sync.WaitGroup
+	lock    sync.Mutex // protect concurrent Start()/Stop()
+}
+
+func (r *ResolverDoT) Export() *ResolverExport {
 	return &ResolverExport{
 		Name:     r.name,
 		IP:       r.ip.String(),
@@ -95,7 +107,7 @@ func (r *Resolver) Export() *ResolverExport {
 	}
 }
 
-func (r *Resolver) Query(msg []byte) error {
+func (r *ResolverDoT) Query(msg []byte) error {
 	length := len(msg)
 	buf := make([]byte, 2+length)
 	binary.BigEndian.PutUint16(buf, uint16(length))
@@ -124,7 +136,7 @@ func (r *Resolver) Query(msg []byte) error {
 	return nil
 }
 
-func (r *Resolver) Start(forwarder chan []byte) {
+func (r *ResolverDoT) Start(forwarder chan []byte) {
 	r.lock.Lock()
 	defer r.lock.Unlock()
 
@@ -146,7 +158,7 @@ func (r *Resolver) Start(forwarder chan []byte) {
 	log.Infof("[%s] started", r.name)
 }
 
-func (r *Resolver) Stop() {
+func (r *ResolverDoT) Stop() {
 	r.lock.Lock()
 	defer r.lock.Unlock()
 
@@ -168,7 +180,7 @@ func (r *Resolver) Stop() {
 	log.Infof("[%s] stopped", r.name)
 }
 
-func (r *Resolver) disconnect() {
+func (r *ResolverDoT) disconnect() {
 	r.clientLock.Lock()
 	defer r.clientLock.Unlock()
 
@@ -182,7 +194,7 @@ func (r *Resolver) disconnect() {
 }
 
 // Connect to the resolver and perform TLS handshake.
-func (r *Resolver) connect() error {
+func (r *ResolverDoT) connect() error {
 	r.clientLock.Lock()
 	defer r.clientLock.Unlock()
 
@@ -239,7 +251,7 @@ func (r *Resolver) connect() error {
 }
 
 // Relay the responses to the forwarder.
-func (r *Resolver) relay(ctx context.Context, forwarder chan []byte) {
+func (r *ResolverDoT) relay(ctx context.Context, forwarder chan []byte) {
 	log.Debugf("[%s] started relaying", r.name)
 
 	for {
@@ -255,7 +267,7 @@ func (r *Resolver) relay(ctx context.Context, forwarder chan []byte) {
 }
 
 // Read responses from resolver and send to forwarder.
-func (r *Resolver) read(forwarder chan []byte) {
+func (r *ResolverDoT) read(forwarder chan []byte) {
 	log.Debugf("[%s] started reading", r.name)
 
 	for {
