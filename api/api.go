@@ -51,8 +51,7 @@ func (h *ApiHandler) start(w http.ResponseWriter, r *http.Request) {
 	} else {
 		resolver := &dns.ResolverExport{
 			Name:     "default",
-			IP:       r.IP,
-			Port:     r.Port,
+			Address:  r.Address,
 			Hostname: r.Hostname,
 		}
 		if err := h.forwarder.Router.SetResolver(resolver); err != nil {

@@ -67,10 +67,8 @@ type ListenConfig struct {
 }
 
 type Resolver struct {
-	// IPv4 or IPv6 address
-	IP string `json:"ip"`
-	// DoT port; default 853
-	Port uint16 `json:"port"`
+	// Resolver address: "[ipv4]:port", "[ipv6]:port"
+	Address string `json:"address"`
 	// Hostname to verify the TLS certificate
 	Hostname string `json:"hostname"`
 }

@@ -42,10 +42,8 @@ type DNSResolver interface {
 type ResolverExport struct {
 	// Name to identify in log messages
 	Name string `json:"name"`
-	// Resolver IPv4/IPv6 address
-	IP string `json:"ip"`
-	// Resolver port
-	Port uint16 `json:"port"`
+	// Resolver address: "[ipv4]:port", "[ipv6]:port"
+	Address string `json:"address"`
 	// Name to verify the TLS certificate
 	Hostname string `json:"hostname"`
 }
@@ -53,13 +51,12 @@ type ResolverExport struct {
 // TODO: DoH (HTTPS) with auth (basic, bearer)
 // TODO: UDP + TCP
 func NewResolverFromExport(re *ResolverExport) (DNSResolver, error) {
-	addr, err := netip.ParseAddr(re.IP)
+	addrport, err := netip.ParseAddrPort(re.Address)
 	if err != nil {
-		log.Errorf("invalid IP address (%s): %v", re.IP, err)
+		log.Errorf("invalid address (%s): %v", re.Address, err)
 		return nil, err
 	}
 
-	addrport := netip.AddrPortFrom(addr, re.Port)
 	name := re.Name
 	if name == "" {
 		if re.Hostname != "" {
@@ -95,8 +92,7 @@ type ResolverDoT struct {
 func (r *ResolverDoT) Export() *ResolverExport {
 	return &ResolverExport{
 		Name:     r.name,
-		IP:       r.address.Addr().String(),
-		Port:     r.address.Port(),
+		Address:  r.address.String(),
 		Hostname: r.hostname,
 	}
 }
