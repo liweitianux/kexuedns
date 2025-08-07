@@ -89,7 +89,7 @@ func (r *Router) SetResolver(re *ResolverExport) error {
 	r.lock.Lock()
 	defer r.lock.Unlock()
 
-	resolver, err := NewResolver(re.IP, re.Port, re.Hostname)
+	resolver, err := NewResolverFromExport(re)
 	if err != nil {
 		log.Errorf("failed to create resolver: %+v, error: %v", re, err)
 		return err

@@ -58,25 +58,30 @@ type ResolverExport struct {
 	Hostname string `json:"hostname"` // name to verify the TLS certificate
 }
 
-func NewResolver(ip string, port uint16, hostname string) (*Resolver, error) {
-	addr, err := netip.ParseAddr(ip)
+func NewResolverFromExport(re *ResolverExport) (*Resolver, error) {
+	addr, err := netip.ParseAddr(re.IP)
 	if err != nil {
-		log.Errorf("invalid IP address (%s): %v", ip, addr)
+		log.Errorf("invalid IP address (%s): %v", re.IP, err)
 		return nil, err
 	}
-	if port <= 0 {
+
+	port := re.Port
+	if port == 0 {
 		port = dotPort
 	}
-	name := hostname
+	name := re.Name
 	if name == "" {
-		addrport := netip.AddrPortFrom(addr, port)
-		name = addrport.String()
+		name = re.Hostname
 	}
+	if name == "" {
+		name = netip.AddrPortFrom(addr, port).String()
+	}
+
 	r := &Resolver{
 		name:     name,
 		ip:       addr,
 		port:     port,
-		hostname: hostname,
+		hostname: re.Hostname,
 	}
 	return r, nil
 }
