@@ -8,6 +8,7 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -36,14 +37,15 @@ func readJSON(r *http.Request, v any) error {
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
-	data, err := json.Marshal(v)
-	if err != nil {
-		http.Error(w, "500 internal server error", http.StatusInternalServerError)
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	if err := enc.Encode(v); err != nil {
+		http.Error(w, "500 internal server error: "+err.Error(),
+			http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write(data)
-	w.Write([]byte("\n"))
+	w.Write(buf.Bytes())
 }
