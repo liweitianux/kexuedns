@@ -98,9 +98,8 @@ func (r *ResolverDoT) Export() *ResolverExport {
 }
 
 func (r *ResolverDoT) Query(msg []byte) error {
-	length := len(msg)
-	buf := make([]byte, 2+length)
-	binary.BigEndian.PutUint16(buf, uint16(length))
+	buf := make([]byte, 2+len(msg))
+	binary.BigEndian.PutUint16(buf, uint16(len(msg)))
 	copy(buf[2:], msg)
 
 	if err := r.connect(); err != nil {
@@ -108,11 +107,8 @@ func (r *ResolverDoT) Query(msg []byte) error {
 	}
 
 	r.client.SetWriteDeadline(time.Now().Add(writeTimeout))
-	n, err := r.client.Write(buf)
-	if err != nil || n != 2+length {
-		if err == nil {
-			err = errors.New("write incomplete")
-		} else if errors.Is(err, syscall.EPIPE) {
+	if _, err := r.client.Write(buf); err != nil {
+		if errors.Is(err, syscall.EPIPE) {
 			log.Debugf("[%s] connection already closed", r.name)
 		} else {
 			log.Errorf("[%s] failed to send query: %v", r.name, err)
@@ -122,7 +118,7 @@ func (r *ResolverDoT) Query(msg []byte) error {
 		return err
 	}
 
-	log.Debugf("[%s] sent query (len=2+%d)", r.name, length)
+	log.Debugf("[%s] sent query", r.name)
 	return nil
 }
 
