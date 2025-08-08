@@ -53,8 +53,10 @@ var defaultKeepAlive = net.KeepAliveConfig{
 
 const (
 	ResolverProtocolDefault = "default" // UDP+TCP
-	ResolverProtocolDoT     = "dot"     // DNS-over-TLS
-	ResolverProtocolDoH     = "doh"     // DNS-over-HTTPS
+	ResolverProtocolUDP     = "udp"
+	ResolverProtocolTCP     = "tcp"
+	ResolverProtocolDoT     = "dot" // DNS-over-TLS
+	ResolverProtocolDoH     = "doh" // DNS-over-HTTPS
 )
 
 type DNSResolver interface {
@@ -138,78 +140,69 @@ func (re *ResolverExport) Validate() error {
 // TODO: DoH (HTTPS) with auth (basic, bearer)
 func NewResolverFromExport(re *ResolverExport) (DNSResolver, error) {
 	switch re.Protocol {
+	case ResolverProtocolTCP:
+		return NewResolverTCP(re)
 	case ResolverProtocolDoT:
 		return NewResolverDoT(re)
 	default:
 		// TODO ResolverProtocolDefault
 		// TODO: ResolverProtocolDoH
+		// TODO: ResolverProtocolUDP
 		return nil, fmt.Errorf("unknown resolver protocol: %s", re.Protocol)
 	}
 }
 
 // ----------------------------------------------------------
 
-type ResolverDoT struct {
+type ResolverTCP struct {
 	name    string
 	address netip.AddrPort
 
-	tlsConfig        *tls.Config
-	keepAlive        net.KeepAliveConfig
-	dialTimeout      time.Duration
-	handshakeTimeout time.Duration
+	keepAlive   net.KeepAliveConfig
+	dialTimeout time.Duration
 
 	poolMaxConns  int
 	poolIdleConns int
-	connPool      *ConnPoolTLS
+	connPool      ConnPool
 
 	wg sync.WaitGroup
 }
 
-func NewResolverDoT(re *ResolverExport) (*ResolverDoT, error) {
+func NewResolverTCP(re *ResolverExport) (*ResolverTCP, error) {
 	if err := re.Validate(); err != nil {
 		return nil, err
 	}
 
 	addrport, _ := netip.ParseAddrPort(re.Address)
 
-	r := &ResolverDoT{
+	r := &ResolverTCP{
 		name:    re.Name,
 		address: addrport,
-		tlsConfig: &tls.Config{
-			RootCAs:    config.Get().CaPool,
-			ServerName: re.ServerName,
-		},
 		keepAlive: net.KeepAliveConfig{
 			Enable:   re.KeepaliveEnable,
 			Idle:     time.Duration(re.KeepaliveIdle) * time.Second,
 			Interval: time.Duration(re.KeepaliveInterval) * time.Second,
 			Count:    re.KeepaliveCount,
 		},
-		dialTimeout:      time.Duration(re.DialTimeout) * time.Second,
-		handshakeTimeout: time.Duration(re.HandshakeTimeout) * time.Second,
-		poolMaxConns:     re.PoolMaxConns,
-		poolIdleConns:    re.PoolIdleConns,
+		poolMaxConns:  re.PoolMaxConns,
+		poolIdleConns: re.PoolIdleConns,
 	}
-
-	pool := NewConnPool(addrport, r.poolMaxConns, r.poolIdleConns,
+	r.connPool = NewConnPool(addrport, r.poolMaxConns, r.poolIdleConns,
 		r.dialTimeout, r.keepAlive)
-	r.connPool = NewConnPoolTLS(pool, r.tlsConfig, r.handshakeTimeout)
 
 	return r, nil
 }
 
-func (r *ResolverDoT) Export() *ResolverExport {
+func (r *ResolverTCP) Export() *ResolverExport {
 	return &ResolverExport{
-		Name:       r.name,
-		Protocol:   ResolverProtocolDoT,
-		Address:    r.address.String(),
-		ServerName: r.tlsConfig.ServerName,
+		Name:     r.name,
+		Protocol: ResolverProtocolTCP,
+		Address:  r.address.String(),
 
 		PoolMaxConns:  r.poolMaxConns,
 		PoolIdleConns: r.poolIdleConns,
 
-		DialTimeout:      int(r.dialTimeout.Seconds()),
-		HandshakeTimeout: int(r.handshakeTimeout.Seconds()),
+		DialTimeout: int(r.dialTimeout.Seconds()),
 
 		KeepaliveEnable:   r.keepAlive.Enable,
 		KeepaliveIdle:     int(r.keepAlive.Idle.Seconds()),
@@ -218,7 +211,7 @@ func (r *ResolverDoT) Export() *ResolverExport {
 	}
 }
 
-func (r *ResolverDoT) Query(ctx context.Context, msg []byte) ([]byte, error) {
+func (r *ResolverTCP) Query(ctx context.Context, msg []byte) ([]byte, error) {
 	r.wg.Add(1)
 	defer r.wg.Done()
 
@@ -299,8 +292,44 @@ func (r *ResolverDoT) Query(ctx context.Context, msg []byte) ([]byte, error) {
 	return nil, err
 }
 
-func (r *ResolverDoT) Close() {
+func (r *ResolverTCP) Close() {
 	r.connPool.Close()
 	r.wg.Wait()
 	log.Infof("[%s] closed", r.name)
+}
+
+// ----------------------------------------------------------
+
+type ResolverDoT struct {
+	*ResolverTCP
+	tlsConfig        *tls.Config
+	handshakeTimeout time.Duration
+}
+
+func NewResolverDoT(re *ResolverExport) (*ResolverDoT, error) {
+	resolver, err := NewResolverTCP(re)
+	if err != nil {
+		return nil, err
+	}
+
+	r := &ResolverDoT{
+		ResolverTCP: resolver,
+		tlsConfig: &tls.Config{
+			RootCAs:    config.Get().CaPool,
+			ServerName: re.ServerName,
+		},
+		handshakeTimeout: time.Duration(re.HandshakeTimeout) * time.Second,
+	}
+	r.connPool = NewConnPoolTLS(r.connPool.(*ConnPoolTCP),
+		r.tlsConfig, r.handshakeTimeout)
+
+	return r, nil
+}
+
+func (r *ResolverDoT) Export() *ResolverExport {
+	re := r.ResolverTCP.Export()
+	re.Protocol = ResolverProtocolDoT
+	re.ServerName = r.tlsConfig.ServerName
+	re.HandshakeTimeout = int(r.handshakeTimeout.Seconds())
+	return re
 }
