@@ -2,12 +2,14 @@
 //
 // Copyright (c) 2025 Aaron LI
 //
-// TCP connection pool.
+// TCP & TLS connection pool.
 //
 
 package dns
 
 import (
+	"context"
+	"crypto/tls"
 	"net"
 	"net/netip"
 	"sync/atomic"
@@ -156,4 +158,58 @@ func (p *ConnPool) isConnAlive(conn net.Conn) bool {
 	_, err := conn.Write([]byte{})
 	conn.SetWriteDeadline(time.Time{}) // clear
 	return err == nil
+}
+
+// ----------------------------------------------------------
+
+type ConnPoolTLS struct {
+	pool             *ConnPool
+	tlsConfig        *tls.Config
+	handshakeTimeout time.Duration
+}
+
+func NewConnPoolTLS(
+	pool *ConnPool,
+	config *tls.Config,
+	handshakeTimeout time.Duration,
+) *ConnPoolTLS {
+	return &ConnPoolTLS{
+		pool:             pool,
+		tlsConfig:        config,
+		handshakeTimeout: handshakeTimeout,
+	}
+}
+
+func (p *ConnPoolTLS) Get() (net.Conn, error) {
+	conn, err := p.pool.Get()
+	if err != nil {
+		return nil, err
+	}
+	if tlsConn, ok := conn.(*tls.Conn); ok {
+		return tlsConn, nil
+	}
+
+	// New TCP connection, wrap in TLS and do handshake.
+	tlsConn := tls.Client(conn, p.tlsConfig)
+	ctx, cancel := context.WithTimeout(context.Background(), p.handshakeTimeout)
+	defer cancel()
+	if err := tlsConn.HandshakeContext(ctx); err != nil {
+		log.Errorf("TLS handshake failed: %v", err)
+		p.pool.Put(conn, true)
+		return nil, err
+	}
+
+	cs := tlsConn.ConnectionState()
+	log.Debugf("TLS connected: Version=%s, CipherSuite=%s, ServerName=%s, ALPN=%s",
+		tls.VersionName(cs.Version), tls.CipherSuiteName(cs.CipherSuite),
+		cs.ServerName, cs.NegotiatedProtocol)
+	return tlsConn, nil
+}
+
+func (p *ConnPoolTLS) Put(conn net.Conn, discard bool) {
+	p.pool.Put(conn, discard)
+}
+
+func (p *ConnPoolTLS) Close() {
+	p.pool.Close()
 }
