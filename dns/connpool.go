@@ -18,8 +18,14 @@ import (
 	"kexuedns/log"
 )
 
+type ConnPool interface {
+	Get() (net.Conn, error)
+	Put(conn net.Conn, discard bool)
+	Close()
+}
+
 // ConnPool manages a pool of TCP connections.
-type ConnPool struct {
+type ConnPoolTCP struct {
 	address     netip.AddrPort      // resolver address
 	maxConns    int                 // max total connections
 	idleConns   int                 // max idle connections
@@ -42,11 +48,11 @@ func NewConnPool(
 	maxConns, idleConns int,
 	dialTimeout time.Duration,
 	keepAlive net.KeepAliveConfig,
-) *ConnPool {
+) *ConnPoolTCP {
 	if idleConns > maxConns {
 		idleConns = maxConns
 	}
-	return &ConnPool{
+	return &ConnPoolTCP{
 		address:     address,
 		maxConns:    maxConns,
 		idleConns:   idleConns,
@@ -57,7 +63,7 @@ func NewConnPool(
 }
 
 // dial creates a new TCP connection with keepalive.
-func (p *ConnPool) dial() (net.Conn, error) {
+func (p *ConnPoolTCP) dial() (net.Conn, error) {
 	conn, err := net.DialTimeout("tcp", p.address.String(), p.dialTimeout)
 	if err != nil {
 		return nil, err
@@ -73,7 +79,7 @@ func (p *ConnPool) dial() (net.Conn, error) {
 }
 
 // Get fetches a healthy connection from the pool (creates one if needed).
-func (p *ConnPool) Get() (conn net.Conn, err error) {
+func (p *ConnPoolTCP) Get() (conn net.Conn, err error) {
 	for {
 		select {
 		case pc := <-p.conns:
@@ -114,7 +120,7 @@ func (p *ConnPool) Get() (conn net.Conn, err error) {
 
 // Put returns a connection back to the pool, or closes it if idle pool full,
 // or discards it.
-func (p *ConnPool) Put(conn net.Conn, discard bool) {
+func (p *ConnPoolTCP) Put(conn net.Conn, discard bool) {
 	if discard {
 		conn.Close()
 		p.active.Add(-1)
@@ -138,7 +144,7 @@ func (p *ConnPool) Put(conn net.Conn, discard bool) {
 }
 
 // Close shuts down the pool and all idle connections.
-func (p *ConnPool) Close() {
+func (p *ConnPoolTCP) Close() {
 	close(p.conns)
 	for pc := range p.conns {
 		pc.conn.Close()
@@ -152,7 +158,7 @@ func (p *ConnPool) Close() {
 // TCP pipelining).  Generally speaking, the connection is only known to be
 // healthy by actually using it.  Therefore, it's simpler and more robust for
 // the caller to retry if the connection is broken.
-func (p *ConnPool) isConnAlive(conn net.Conn) bool {
+func (p *ConnPoolTCP) isConnAlive(conn net.Conn) bool {
 	// Zero-byte write check
 	conn.SetWriteDeadline(time.Now().Add(10 * time.Millisecond))
 	_, err := conn.Write([]byte{})
@@ -163,13 +169,13 @@ func (p *ConnPool) isConnAlive(conn net.Conn) bool {
 // ----------------------------------------------------------
 
 type ConnPoolTLS struct {
-	pool             *ConnPool
+	pool             *ConnPoolTCP
 	tlsConfig        *tls.Config
 	handshakeTimeout time.Duration
 }
 
 func NewConnPoolTLS(
-	pool *ConnPool,
+	pool *ConnPoolTCP,
 	config *tls.Config,
 	handshakeTimeout time.Duration,
 ) *ConnPoolTLS {
