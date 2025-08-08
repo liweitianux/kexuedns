@@ -163,9 +163,9 @@ func (c *Cache) clean(interval time.Duration) {
 	}
 
 	ticker := time.NewTicker(interval)
-	for {
-		<-ticker.C
+	defer ticker.Stop()
 
+	for range ticker.C {
 		evictedItems := []*kvItem{}
 		c.lock.Lock()
 		now := time.Now().UnixNano()
