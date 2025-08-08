@@ -97,7 +97,7 @@ func (r *Router) SetResolver(re *ResolverExport) error {
 	}
 
 	if r.resolver != nil {
-		r.resolver.Stop()
+		r.resolver.Close()
 	}
 
 	r.resolver = resolver
@@ -123,15 +123,15 @@ func (r *Router) GetResolver(name string) (DNSResolver, int) {
 	return r.resolver, -1
 }
 
-// Stop all resolvers.
-func (r *Router) Stop() {
+// Close all resolvers.
+func (r *Router) Close() {
 	if r.resolver != nil {
-		r.resolver.Stop()
+		r.resolver.Close()
 	}
 
 	for _, rr := range r.routes {
 		if rr != nil && rr.resolver != nil {
-			rr.resolver.Stop()
+			rr.resolver.Close()
 		}
 	}
 }
