@@ -12,6 +12,7 @@ import (
 	"crypto/tls"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/netip"
@@ -23,262 +24,283 @@ import (
 	"kexuedns/log"
 )
 
-const (
-	readTimeout  = 15 * time.Second
-	writeTimeout = 5 * time.Second
+var defaultTimeouts = struct {
+	Read      time.Duration
+	Write     time.Duration
+	Dial      time.Duration
+	Handshake time.Duration
+}{
+	Read:      15 * time.Second,
+	Write:     5 * time.Second,
+	Dial:      5 * time.Second,
+	Handshake: 5 * time.Second,
+}
 
-	keepaliveIdle     = 25 * time.Second
-	keepaliveInterval = 25 * time.Second
-	keepaliveCount    = 3
+var defaultPoolSize = struct {
+	MaxConns  int
+	IdleConns int
+}{
+	MaxConns:  20,
+	IdleConns: 10,
+}
+
+var defaultKeepAlive = net.KeepAliveConfig{
+	Enable:   true,
+	Idle:     15 * time.Second,
+	Interval: 15 * time.Second,
+	Count:    3,
+}
+
+const (
+	ResolverProtocolDefault = "default" // UDP+TCP
+	ResolverProtocolDoT     = "dot"     // DNS-over-TLS
+	ResolverProtocolDoH     = "doh"     // DNS-over-HTTPS
 )
 
 type DNSResolver interface {
 	Export() *ResolverExport
-	Start(forwarder chan []byte)
-	Stop()
-	Query(msg []byte) error
+	Close()
+	Query(ctx context.Context, msg []byte) ([]byte, error)
 }
 
 type ResolverExport struct {
 	// Name to identify in log messages
 	Name string `json:"name"`
+	// Resolver protocol: default, dot, doh
+	Protocol string `json:"protocol"`
 	// Resolver address: "[ipv4]:port", "[ipv6]:port"
 	Address string `json:"address"`
-	// Name to verify the TLS certificate
-	Hostname string `json:"hostname"`
+	// Server name (SNI) to verify the TLS certificate
+	ServerName string `json:"server_name"` // DoT/DoH only
+
+	// TCP pool size: max total connections
+	PoolMaxConns int `json:"pool_max_conns"`
+	// TCP pool size: max idel connections
+	PoolIdleConns int `json:"pool_idle_conns"`
+
+	// TCP dial timeout (seconds)
+	DialTimeout int `json:"dial_timeout"`
+	// TLS handshake timeout (seconds)
+	HandshakeTimeout int `json:"handshake_timeout"`
+
+	// TCP keepalive settings
+	KeepaliveEnable   bool `json:"keepalive_enable"`
+	KeepaliveIdle     int  `json:"keepalive_idle"`     // seconds
+	KeepaliveInterval int  `json:"keepalive_interval"` // seconds
+	KeepaliveCount    int  `json:"keepalive_count"`
 }
 
-// TODO: DoH (HTTPS) with auth (basic, bearer)
-// TODO: UDP + TCP
-func NewResolverFromExport(re *ResolverExport) (DNSResolver, error) {
+// Validate and normalize the fields.
+func (re *ResolverExport) Validate() error {
 	addrport, err := netip.ParseAddrPort(re.Address)
 	if err != nil {
 		log.Errorf("invalid address (%s): %v", re.Address, err)
-		return nil, err
+		return err
 	}
 
-	name := re.Name
-	if name == "" {
-		if re.Hostname != "" {
-			name = re.Hostname
+	if re.Name == "" {
+		if re.ServerName != "" {
+			re.Name = re.ServerName
 		} else {
-			name = addrport.String()
+			re.Name = addrport.String()
 		}
 	}
 
-	r := &ResolverDoT{
-		name:     name,
-		address:  addrport,
-		hostname: re.Hostname,
+	if re.PoolMaxConns == 0 {
+		re.PoolMaxConns = defaultPoolSize.MaxConns
 	}
-	return r, nil
+	if re.PoolIdleConns == 0 {
+		re.PoolIdleConns = defaultPoolSize.IdleConns
+	}
+
+	if re.DialTimeout == 0 {
+		re.DialTimeout = int(defaultTimeouts.Dial.Seconds())
+	}
+	if re.HandshakeTimeout == 0 {
+		re.HandshakeTimeout = int(defaultTimeouts.Handshake.Seconds())
+	}
+
+	if re.KeepaliveEnable {
+		if re.KeepaliveIdle == 0 {
+			re.KeepaliveIdle = int(defaultKeepAlive.Idle.Seconds())
+		}
+		if re.KeepaliveInterval == 0 {
+			re.KeepaliveInterval = int(defaultKeepAlive.Interval.Seconds())
+		}
+		if re.KeepaliveCount == 0 {
+			re.KeepaliveIdle = defaultKeepAlive.Count
+		}
+	}
+
+	return nil
 }
 
+// TODO: DoH (HTTPS) with auth (basic, bearer)
+func NewResolverFromExport(re *ResolverExport) (DNSResolver, error) {
+	switch re.Protocol {
+	case ResolverProtocolDoT:
+		return NewResolverDoT(re)
+	default:
+		// TODO ResolverProtocolDefault
+		// TODO: ResolverProtocolDoH
+		return nil, fmt.Errorf("unknown resolver protocol: %s", re.Protocol)
+	}
+}
+
+// ----------------------------------------------------------
+
 type ResolverDoT struct {
-	name     string
-	address  netip.AddrPort
-	hostname string
+	name    string
+	address netip.AddrPort
 
-	client      *tls.Conn
-	clientLock  sync.Mutex    // protect concurrent connect()/disconnect()
-	connections chan struct{} // notify new connections
+	tlsConfig        *tls.Config
+	keepAlive        net.KeepAliveConfig
+	dialTimeout      time.Duration
+	handshakeTimeout time.Duration
 
-	running bool
-	cancel  context.CancelFunc // stop the resolver
-	wg      sync.WaitGroup
-	lock    sync.Mutex // protect concurrent Start()/Stop()
+	poolMaxConns  int
+	poolIdleConns int
+	connPool      *ConnPoolTLS
+
+	wg sync.WaitGroup
+}
+
+func NewResolverDoT(re *ResolverExport) (*ResolverDoT, error) {
+	if err := re.Validate(); err != nil {
+		return nil, err
+	}
+
+	addrport, _ := netip.ParseAddrPort(re.Address)
+
+	r := &ResolverDoT{
+		name:    re.Name,
+		address: addrport,
+		tlsConfig: &tls.Config{
+			RootCAs:    config.Get().CaPool,
+			ServerName: re.ServerName,
+		},
+		keepAlive: net.KeepAliveConfig{
+			Enable:   re.KeepaliveEnable,
+			Idle:     time.Duration(re.KeepaliveIdle) * time.Second,
+			Interval: time.Duration(re.KeepaliveInterval) * time.Second,
+			Count:    re.KeepaliveCount,
+		},
+		dialTimeout:      time.Duration(re.DialTimeout) * time.Second,
+		handshakeTimeout: time.Duration(re.HandshakeTimeout) * time.Second,
+		poolMaxConns:     re.PoolMaxConns,
+		poolIdleConns:    re.PoolIdleConns,
+	}
+
+	pool := NewConnPool(addrport, r.poolMaxConns, r.poolIdleConns,
+		r.dialTimeout, r.keepAlive)
+	r.connPool = NewConnPoolTLS(pool, r.tlsConfig, r.handshakeTimeout)
+
+	return r, nil
 }
 
 func (r *ResolverDoT) Export() *ResolverExport {
 	return &ResolverExport{
-		Name:     r.name,
-		Address:  r.address.String(),
-		Hostname: r.hostname,
+		Name:       r.name,
+		Protocol:   ResolverProtocolDoT,
+		Address:    r.address.String(),
+		ServerName: r.tlsConfig.ServerName,
+
+		PoolMaxConns:  r.poolMaxConns,
+		PoolIdleConns: r.poolIdleConns,
+
+		DialTimeout:      int(r.dialTimeout.Seconds()),
+		HandshakeTimeout: int(r.handshakeTimeout.Seconds()),
+
+		KeepaliveEnable:   r.keepAlive.Enable,
+		KeepaliveIdle:     int(r.keepAlive.Idle.Seconds()),
+		KeepaliveInterval: int(r.keepAlive.Interval.Seconds()),
+		KeepaliveCount:    r.keepAlive.Count,
 	}
 }
 
-func (r *ResolverDoT) Query(msg []byte) error {
+func (r *ResolverDoT) Query(ctx context.Context, msg []byte) ([]byte, error) {
+	r.wg.Add(1)
+	defer r.wg.Done()
+
 	buf := make([]byte, 2+len(msg))
 	binary.BigEndian.PutUint16(buf, uint16(len(msg)))
 	copy(buf[2:], msg)
 
-	if err := r.connect(); err != nil {
-		return err
-	}
+	var conn net.Conn
+	var err error
+	defer func() {
+		if conn != nil {
+			r.connPool.Put(conn, err != nil) // discard connection on error
+		}
+	}()
 
-	r.client.SetWriteDeadline(time.Now().Add(writeTimeout))
-	if _, err := r.client.Write(buf); err != nil {
-		if errors.Is(err, syscall.EPIPE) {
-			log.Debugf("[%s] connection already closed", r.name)
+	for try := 0; try < 2; try++ {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		if conn != nil {
+			r.connPool.Put(conn, true) // discard previous broken connection
+			conn = nil                 // just be safe
+		}
+
+		conn, err = r.connPool.Get()
+		if err != nil {
+			log.Errorf("[%s] failed to get a connection: %v", r.name, err)
+			break
+		}
+
+		// Apply deadline from context.
+		if deadline, ok := ctx.Deadline(); ok {
+			conn.SetDeadline(deadline)
 		} else {
-			log.Errorf("[%s] failed to send query: %v", r.name, err)
+			conn.SetWriteDeadline(time.Now().Add(defaultTimeouts.Write))
+			conn.SetReadDeadline(time.Now().Add(defaultTimeouts.Read))
 		}
-		r.disconnect()
 
-		return err
-	}
-
-	log.Debugf("[%s] sent query", r.name)
-	return nil
-}
-
-func (r *ResolverDoT) Start(forwarder chan []byte) {
-	r.lock.Lock()
-	defer r.lock.Unlock()
-
-	if r.running {
-		return
-	}
-
-	if r.connections == nil {
-		r.connections = make(chan struct{})
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-
-	r.wg.Add(1)
-	go r.relay(ctx, forwarder)
-
-	r.cancel = cancel
-	r.running = true
-	log.Infof("[%s] started", r.name)
-}
-
-func (r *ResolverDoT) Stop() {
-	r.lock.Lock()
-	defer r.lock.Unlock()
-
-	if !r.running {
-		return
-	}
-
-	r.cancel()
-	r.disconnect()
-
-	// Empty the connections channel.
-	select {
-	case <-r.connections:
-	default:
-	}
-
-	r.wg.Wait()
-	r.running = false
-	log.Infof("[%s] stopped", r.name)
-}
-
-func (r *ResolverDoT) disconnect() {
-	r.clientLock.Lock()
-	defer r.clientLock.Unlock()
-
-	if r.client == nil {
-		return
-	}
-
-	r.client.Close()
-	r.client = nil
-	log.Infof("[%s] disconnected", r.name)
-}
-
-// Connect to the resolver and perform TLS handshake.
-func (r *ResolverDoT) connect() error {
-	r.clientLock.Lock()
-	defer r.clientLock.Unlock()
-
-	if r.client != nil {
-		return nil
-	}
-
-	tconn, err := net.DialTCP("tcp", nil, net.TCPAddrFromAddrPort(r.address))
-	if err != nil {
-		log.Errorf("[%s] tcp dial failed: %v", r.name, err)
-		return err
-	}
-
-	// NOTE: Require Go 1.23.0+
-	err = tconn.SetKeepAliveConfig(net.KeepAliveConfig{
-		Enable:   true,
-		Idle:     keepaliveIdle,
-		Interval: keepaliveInterval,
-		Count:    keepaliveCount,
-	})
-	if err != nil {
-		log.Errorf("[%s] failed to set keepalive: %v", r.name, err)
-		return err
-	}
-
-	// TLS connection and handshake
-	conn := tls.Client(tconn, &tls.Config{
-		RootCAs:    config.Get().CaPool,
-		ServerName: r.hostname,
-	})
-	// Set deadlines to prevent indefinite blocking.
-	conn.SetReadDeadline(time.Now().Add(readTimeout))
-	conn.SetWriteDeadline(time.Now().Add(writeTimeout))
-	err = conn.Handshake()
-	if err != nil {
-		log.Errorf("[%s] tls handshake failure: %v", r.name, err)
-		return err
-	}
-	conn.SetDeadline(time.Time{}) // Reset the deadline.
-
-	cs := conn.ConnectionState()
-	log.Infof("[%s] connected: Version=%s, CipherSuite=%s, ServerName=%s, ALPN=%s",
-		r.name, tls.VersionName(cs.Version), tls.CipherSuiteName(cs.CipherSuite),
-		cs.ServerName, cs.NegotiatedProtocol)
-
-	r.client = conn
-	r.connections <- struct{}{}
-
-	return nil
-}
-
-// Relay the responses to the forwarder.
-func (r *ResolverDoT) relay(ctx context.Context, forwarder chan []byte) {
-	log.Debugf("[%s] started relaying", r.name)
-
-	for {
-		select {
-		case <-ctx.Done():
-			log.Debugf("[%s] stop relaying", r.name)
-			r.wg.Done()
-			return
-		case <-r.connections:
-			r.read(forwarder)
+		// Send query packet.
+		_, err = conn.Write(buf)
+		if err != nil {
+			if errors.Is(err, syscall.EPIPE) {
+				log.Debugf("[%s] connection already closed", r.name)
+			} else {
+				log.Errorf("[%s] failed to send query: %v", r.name, err)
+			}
+			continue // retry
 		}
-	}
-}
+		log.Debugf("[%s] sent query", r.name)
 
-// Read responses from resolver and send to forwarder.
-func (r *ResolverDoT) read(forwarder chan []byte) {
-	log.Debugf("[%s] started reading", r.name)
-
-	for {
-		// read response length
+		// Read response length.
 		lbuf := make([]byte, 2)
-		if _, err := io.ReadFull(r.client, lbuf); err != nil {
+		_, err = io.ReadFull(conn, lbuf)
+		if err != nil {
 			if errors.Is(err, io.EOF) {
 				log.Debugf("[%s] remote closed socket", r.name)
 			} else if errors.Is(err, net.ErrClosed) {
 				log.Debugf("[%s] socket closed", r.name)
 			} else {
-				log.Errorf("[%s] failed to read response length: %v",
-					r.name, err)
+				log.Errorf("[%s] failed to read response length: %v", r.name, err)
 			}
-			break
+			continue // retry
 		}
 
-		// read response content
-		length := binary.BigEndian.Uint16(lbuf)
-		resp := make([]byte, length)
-		if _, err := io.ReadFull(r.client, resp); err != nil {
+		// Read response content.
+		rlength := binary.BigEndian.Uint16(lbuf)
+		resp := make([]byte, rlength)
+		_, err = io.ReadFull(conn, resp)
+		if err != nil {
 			log.Errorf("[%s] failed to read response content: %v", r.name, err)
-			break
+			break // length already read; cannot retry
 		}
 
-		log.Debugf("[%s] received response (len=2+%d)", r.name, length)
-		forwarder <- resp
+		log.Debugf("[%s] received response (len=2+%d)", r.name, rlength)
+		return resp, nil
 	}
 
-	r.disconnect()
-	log.Debugf("[%s] stopped reading", r.name)
+	return nil, err
+}
+
+func (r *ResolverDoT) Close() {
+	r.connPool.Close()
+	r.wg.Wait()
+	log.Infof("[%s] closed", r.name)
 }
