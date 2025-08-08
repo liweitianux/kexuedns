@@ -15,8 +15,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
-	"math/rand"
 	"net"
 	"net/http"
 	"net/netip"
@@ -28,15 +26,13 @@ import (
 	"kexuedns/config"
 	"kexuedns/log"
 	"kexuedns/util/dnsmsg"
-	"kexuedns/util/ttlcache"
 )
 
 const (
 	maxQuerySize = 512 // bytes
 	minQuerySize = 12  // bytes (header length)
 
-	queryTimeout   = 5 * time.Second
-	sessionTimeout = 10 * time.Second
+	queryTimeout = 5 * time.Second
 
 	dohURI         = "/dns-query"
 	dohContentType = "application/dns-message"
@@ -58,9 +54,6 @@ type Forwarder struct {
 	Listen    *ListenConfig // UDP+TCP protocols
 	ListenDoT *ListenConfig // DoT protocol
 	ListenDoH *ListenConfig // DoH protocol
-
-	responses chan []byte
-	sessions  *ttlcache.Cache // dnsmsg.SessionKey() => *Session
 
 	cancel context.CancelFunc // cancel listners to stop the forwarder
 	wg     sync.WaitGroup     // wait for shutdown to complete
@@ -112,17 +105,6 @@ func (lc *ListenConfig) listen(proto dnsProto) (io.Closer, error) {
 	default:
 		panic(fmt.Sprintf("unknown protocol: %v", proto))
 	}
-}
-
-type Session struct {
-	proto    dnsProto
-	udpConn  *net.UDPConn
-	tcpConn  net.Conn // *net.TCPConn, *tls.Conn
-	client   net.Addr
-	query    []byte      // original query packet
-	queryID  uint16      // original query ID
-	response chan []byte // pipe response to DoH handler
-	timer    *time.Timer // query timeout timer
 }
 
 // Set the address of UDP+TCP listeners.
@@ -207,7 +189,7 @@ func (f *Forwarder) makeListenConfig(
 }
 
 func (f *Forwarder) Stop() {
-	f.Router.Stop()
+	f.Router.Close()
 
 	if f.cancel != nil {
 		f.cancel()
@@ -220,12 +202,6 @@ func (f *Forwarder) Stop() {
 // Start the forwarder at the given address (address).
 // This function starts a goroutine to serve the queries so it doesn't block.
 func (f *Forwarder) Start() (err error) {
-	rand.Seed(time.Now().UnixNano())
-
-	if f.sessions == nil {
-		f.sessions = ttlcache.New(sessionTimeout, 0, nil)
-	}
-
 	listenConfigs := map[dnsProto]*ListenConfig{
 		dnsProtoUDP: f.Listen,
 		dnsProtoTCP: f.Listen,
@@ -278,13 +254,9 @@ func (f *Forwarder) Start() (err error) {
 		}
 	}
 
-	f.wg.Add(1)
-	go f.receive(ctx)
-
 	return
 }
 
-// NOTE: This function blocks until Stop() is called.
 func (f *Forwarder) serveUDP(ctx context.Context, conn *net.UDPConn) {
 	go func() {
 		// Wait for cancellation from Stop().
@@ -306,21 +278,23 @@ func (f *Forwarder) serveUDP(ctx context.Context, conn *net.UDPConn) {
 			continue
 		}
 
-		msg := make([]byte, n)
-		copy(msg, buf[:n])
-		session := &Session{
-			proto:   dnsProtoUDP,
-			udpConn: conn,
-			client:  addr,
-			query:   msg,
-		}
-		log.Debugf("handle UDP query from %s", addr)
-		go f.handleQuery(session)
+		query := make([]byte, n)
+		copy(query, buf[:n])
+
+		go func() {
+			log.Debugf("handle UDP query from %s", addr)
+			resp, _ := f.handleQuery(query)
+			if resp != nil {
+				_, err = conn.WriteTo(resp, addr)
+				if err != nil {
+					log.Warnf("failed to send packet: %v", err)
+				}
+			}
+		}()
 	}
 }
 
 // Serve TCP and DoT connections.
-// NOTE: This function blocks until Stop() is called.
 func (f *Forwarder) serveTCP(ctx context.Context, ln net.Listener) {
 	go func() {
 		// Wait for cancellation from Stop().
@@ -404,17 +378,11 @@ func (f *Forwarder) handleDoH(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	session := &Session{
-		proto:    dnsProtoDoH,
-		query:    query,
-		response: make(chan []byte, 1),
-	}
-	if ok := f.handleQuery(session); !ok {
-		http.Error(w, "400 bad request: query invalid", http.StatusBadRequest)
+	resp, err := f.handleQuery(query)
+	if resp == nil {
+		http.Error(w, "400 bad request: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-
-	resp := <-session.response
 
 	w.Header().Set("Content-Type", dohContentType)
 	w.WriteHeader(http.StatusOK)
@@ -424,14 +392,15 @@ func (f *Forwarder) handleDoH(w http.ResponseWriter, r *http.Request) {
 func (f *Forwarder) handleTCP(ctx context.Context, conn net.Conn) {
 	defer conn.Close()
 
+	lbuf := make([]byte, 2)
 	for {
-		proto, protoName := dnsProtoTCP, "TCP"
+		proto := "TCP"
 		if _, ok := conn.(*tls.Conn); ok {
-			proto, protoName = dnsProtoDoT, "DoT"
+			proto = "DoT"
 		}
-		log.Debugf("handle %s query from %s", protoName, conn.RemoteAddr())
+		log.Debugf("handle %s query from %s", proto, conn.RemoteAddr())
+
 		// read query length
-		lbuf := make([]byte, 2)
 		if _, err := io.ReadFull(conn, lbuf); err != nil {
 			if errors.Is(err, io.EOF) {
 				log.Debugf("remote closed connection")
@@ -444,66 +413,51 @@ func (f *Forwarder) handleTCP(ctx context.Context, conn net.Conn) {
 		}
 		// read query content
 		length := binary.BigEndian.Uint16(lbuf)
-		msg := make([]byte, length)
-		if _, err := io.ReadFull(conn, msg); err != nil {
+		query := make([]byte, length)
+		if _, err := io.ReadFull(conn, query); err != nil {
 			log.Errorf("failed to read query content: %v", err)
 			return
 		}
 
-		session := &Session{
-			proto:   proto,
-			tcpConn: conn,
-			query:   msg,
+		resp, _ := f.handleQuery(query)
+		if resp != nil {
+			binary.BigEndian.PutUint16(lbuf, uint16(len(resp)))
+			_, err := conn.Write(append(lbuf, resp...))
+			if err != nil {
+				log.Warnf("failed to send packet: %v", err)
+				return
+			}
 		}
-		go f.handleQuery(session)
 	}
 }
 
-// NOTE: This function is reused in handleDoH() and thus needs to return
-// a boolean indicating whether there is a reply.
-func (f *Forwarder) handleQuery(session *Session) bool {
-	if n := len(session.query); n <= minQuerySize {
-		log.Debugf("malformatted query: length=%d", n)
-		return false // Unable to make a sensible reply; just drop it.
+func (f *Forwarder) handleQuery(qmsg []byte) ([]byte, error) {
+	f.wg.Add(1)
+	defer f.wg.Done()
+
+	if n := len(qmsg); n <= minQuerySize {
+		log.Debugf("junk packet: length=%d", n)
+		// Unable to make a sensible reply; just drop it.
+		// Dropping also prevents from abusing for amplification attacks.
+		return nil, errors.New("junk packet")
 	}
 
-	query, err := dnsmsg.NewQueryMsg(session.query)
+	query, err := dnsmsg.NewQueryMsg(qmsg)
 	if err != nil {
 		log.Debugf("invalid query packet: %v", err)
-		return false // Drop as well.
+		return nil, errors.New("invalid query")
 	}
 
-	// Regenerate a random ID for the query to be forwarded, avoiding conflicts
-	// from multiple clients.
-	session.queryID = query.Header.ID
-	query.Header.ID = uint16(rand.Intn(math.MaxUint16))
+	// Make a fallback reply with RCode=ServFail.
+	rquery := dnsmsg.RawMsg(qmsg)
+	rquery.SetRCode(dnsmessage.RCodeServerFailure)
+	rresp := []byte(rquery)
 
-	key := query.SessionKey()
-	f.sessions.Set(key, session, ttlcache.DefaultTTL)
-	log.Debugf("added session with key: %s", key)
-
-	if err := f.query(query); err != nil {
-		f.sessions.Delete(key)
-		f.reply(session, nil)
-	} else {
-		session.timer = time.AfterFunc(queryTimeout, func() {
-			log.Infof("session [%s] timed out", key)
-			f.sessions.Delete(key)
-			f.reply(session, nil)
-		})
-	}
-
-	return true // Has a reply regardless of success or failure.
-}
-
-// Query the backend resolver.
-// NOTE: The response is handled asynchronously by receive().
-func (f *Forwarder) query(query *dnsmsg.QueryMsg) error {
 	qname := query.QName()
 	resolver, _ := f.Router.GetResolver(qname)
 	if resolver == nil {
 		log.Debugf("no resolver found for qname [%s]", qname)
-		return errors.New("resolver not found")
+		return rresp, errors.New("resolver not found")
 	}
 
 	myIP := config.GetMyIP()
@@ -519,74 +473,15 @@ func (f *Forwarder) query(query *dnsmsg.QueryMsg) error {
 	msg, err := query.Build()
 	if err != nil {
 		log.Errorf("failed to build query: %v", err)
-		return err
+		return rresp, err
 	}
 
-	resolver.Start(f.responses) // Start the resolver if not yet
-
-	return resolver.Query(msg)
-}
-
-// Receive responses from the backend resolver and dispatch to clients.
-func (f *Forwarder) receive(ctx context.Context) {
-	log.Debugf("started receiving responses")
-	f.responses = make(chan []byte)
-
-	for {
-		select {
-		case <-ctx.Done():
-			close(f.responses)
-			log.Debugf("stop receiving responses")
-			f.wg.Done()
-			return
-		case resp := <-f.responses:
-			key, err := dnsmsg.RawMsg(resp).SessionKey()
-			if err != nil {
-				log.Warnf("invalid response: %v", err)
-			} else {
-				if v, ok := f.sessions.Pop(key); ok {
-					go f.reply(v.(*Session), resp)
-				} else {
-					log.Warnf("session [%s] not found or expired", key)
-				}
-			}
-		}
-	}
-}
-
-// Reply the client with the response.
-func (f *Forwarder) reply(session *Session, resp []byte) {
-	if session.timer != nil {
-		session.timer.Stop()
-	}
-
-	if len(resp) > 0 {
-		msg := dnsmsg.RawMsg(resp)
-		msg.SetID(session.queryID)
-		resp = []byte(msg)
-	} else {
-		// Reply with ServFail.
-		msg := dnsmsg.RawMsg(session.query)
-		msg.SetRCode(dnsmessage.RCodeServerFailure)
-		resp = []byte(msg)
-	}
-
-	var err error
-	switch session.proto {
-	case dnsProtoUDP:
-		_, err = session.udpConn.WriteTo(resp, session.client)
-	case dnsProtoTCP, dnsProtoDoT:
-		lbuf := make([]byte, 2)
-		binary.BigEndian.PutUint16(lbuf, uint16(len(resp)))
-		_, err = session.tcpConn.Write(append(lbuf, resp...))
-	case dnsProtoDoH:
-		session.response <- resp
-		// OK to close since it's buffered (i.e., created with size).
-		close(session.response)
-	default:
-		panic(fmt.Sprintf("unknown protocol: %v", session.proto))
-	}
+	ctx, cancel := context.WithTimeout(context.Background(), queryTimeout)
+	defer cancel()
+	resp, err := resolver.Query(ctx, msg)
 	if err != nil {
-		log.Warnf("failed to send packet: %v", err)
+		return rresp, err
 	}
+
+	return resp, nil
 }
