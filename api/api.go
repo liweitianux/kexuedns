@@ -50,9 +50,10 @@ func (h *ApiHandler) start(w http.ResponseWriter, r *http.Request) {
 		log.Warnf("no resolver configured yet")
 	} else {
 		resolver := &dns.ResolverExport{
-			Name:     "default",
-			Address:  r.Address,
-			Hostname: r.Hostname,
+			Name:       r.Name,
+			Protocol:   r.Protocol,
+			Address:    r.Address,
+			ServerName: r.ServerName,
 		}
 		if err := h.forwarder.Router.SetResolver(resolver); err != nil {
 			log.Warnf("failed to set resolver: %+v, error: %v", r, err)

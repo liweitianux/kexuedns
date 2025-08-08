@@ -67,10 +67,14 @@ type ListenConfig struct {
 }
 
 type Resolver struct {
+	// Custom name to help identify this resolver.
+	Name string `json:"name"`
+	// Resolver protocol: default, dot, doh
+	Protocol string `json:"protocol"`
 	// Resolver address: "[ipv4]:port", "[ipv6]:port"
 	Address string `json:"address"`
-	// Hostname to verify the TLS certificate
-	Hostname string `json:"hostname"`
+	// Server name (SNI) to verify the TLS certificate
+	ServerName string `json:"server_name"`
 }
 
 type path string
