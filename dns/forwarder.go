@@ -281,7 +281,9 @@ func (f *Forwarder) serveUDP(ctx context.Context, conn *net.UDPConn) {
 		query := make([]byte, n)
 		copy(query, buf[:n])
 
+		f.wg.Add(1)
 		go func() {
+			defer f.wg.Done()
 			log.Debugf("handle UDP query from %s", addr)
 			resp, _ := f.handleQuery(query)
 			if resp != nil {
@@ -315,6 +317,7 @@ func (f *Forwarder) serveTCP(ctx context.Context, ln net.Listener) {
 			continue
 		}
 
+		f.wg.Add(1)
 		go f.handleTCP(ctx, conn)
 	}
 }
@@ -390,7 +393,10 @@ func (f *Forwarder) handleDoH(w http.ResponseWriter, r *http.Request) {
 }
 
 func (f *Forwarder) handleTCP(ctx context.Context, conn net.Conn) {
-	defer conn.Close()
+	defer func() {
+		conn.Close()
+		f.wg.Done()
+	}()
 
 	lbuf := make([]byte, 2)
 	for {
@@ -432,9 +438,6 @@ func (f *Forwarder) handleTCP(ctx context.Context, conn net.Conn) {
 }
 
 func (f *Forwarder) handleQuery(qmsg []byte) ([]byte, error) {
-	f.wg.Add(1)
-	defer f.wg.Done()
-
 	if n := len(qmsg); n <= minQuerySize {
 		log.Debugf("junk packet: length=%d", n)
 		// Unable to make a sensible reply; just drop it.
