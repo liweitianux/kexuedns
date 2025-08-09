@@ -66,7 +66,7 @@ const (
 	udpChannelSize  = 1024 // max number of in-flight UDP queries
 )
 
-type DNSResolver interface {
+type Resolver interface {
 	Export() *ResolverExport
 	Close()
 	Query(ctx context.Context, msg []byte, isUDP bool) ([]byte, error)
@@ -145,7 +145,7 @@ func (re *ResolverExport) Validate() error {
 }
 
 // TODO: DoH (HTTPS) with auth (basic, bearer)
-func NewResolverFromExport(re *ResolverExport) (DNSResolver, error) {
+func NewResolverFromExport(re *ResolverExport) (Resolver, error) {
 	switch re.Protocol {
 	case ResolverProtocolDefault, "":
 		return NewResolverUT(re)

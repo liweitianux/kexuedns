@@ -25,7 +25,7 @@ var (
 )
 
 type Router struct {
-	resolver DNSResolver // default resolver
+	resolver Resolver // default resolver
 	routes   [MaxRoutes]*Route
 	lock     sync.RWMutex
 }
@@ -33,7 +33,7 @@ type Router struct {
 // TODO: resolver group & dispatch policy
 type Route struct {
 	name     string
-	resolver DNSResolver
+	resolver Resolver
 	trie     *dnstrie.DNSTrie
 }
 
@@ -107,7 +107,7 @@ func (r *Router) SetResolver(re *ResolverExport) error {
 }
 
 // Get the best-matched resolver for the query name.
-func (r *Router) GetResolver(name string) (DNSResolver, int) {
+func (r *Router) GetResolver(name string) (Resolver, int) {
 	r.lock.RLock()
 	defer r.lock.RUnlock()
 
