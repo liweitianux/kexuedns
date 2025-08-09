@@ -32,7 +32,7 @@ const (
 	maxQuerySize = 512 // bytes
 	minQuerySize = 12  // bytes (header length)
 
-	queryTimeout = 5 * time.Second
+	queryTimeout = 4 * time.Second // less than dig's default (5s)
 
 	dohURI         = "/dns-query"
 	dohContentType = "application/dns-message"
