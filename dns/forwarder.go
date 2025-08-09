@@ -440,6 +440,8 @@ func (f *Forwarder) handleQuery(qmsg []byte) ([]byte, error) {
 		// Unable to make a sensible reply; just drop it.
 		// Dropping also prevents from abusing for amplification attacks.
 		return nil, errors.New("junk packet")
+	} else if n > maxQuerySize {
+		return nil, errors.New("packet too large")
 	}
 
 	query, err := dnsmsg.NewQueryMsg(qmsg)
