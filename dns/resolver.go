@@ -69,7 +69,7 @@ const (
 type DNSResolver interface {
 	Export() *ResolverExport
 	Close()
-	Query(ctx context.Context, msg []byte) ([]byte, error)
+	Query(ctx context.Context, msg []byte, isUDP bool) ([]byte, error)
 }
 
 type ResolverExport struct {
@@ -147,6 +147,8 @@ func (re *ResolverExport) Validate() error {
 // TODO: DoH (HTTPS) with auth (basic, bearer)
 func NewResolverFromExport(re *ResolverExport) (DNSResolver, error) {
 	switch re.Protocol {
+	case ResolverProtocolDefault, "":
+		return NewResolverUT(re)
 	case ResolverProtocolUDP:
 		return NewResolverUDP(re)
 	case ResolverProtocolTCP:
@@ -158,6 +160,52 @@ func NewResolverFromExport(re *ResolverExport) (DNSResolver, error) {
 		// TODO: ResolverProtocolDoH
 		return nil, fmt.Errorf("unknown resolver protocol: %s", re.Protocol)
 	}
+}
+
+// ----------------------------------------------------------
+
+type ResolverUT struct {
+	*ResolverTCP
+	udp *ResolverUDP
+}
+
+func NewResolverUT(re *ResolverExport) (*ResolverUT, error) {
+	tcpResolver, err := NewResolverTCP(re)
+	if err != nil {
+		return nil, err
+	}
+	udpResolver, err := NewResolverUDP(re)
+	if err != nil {
+		return nil, err
+	}
+
+	r := &ResolverUT{
+		ResolverTCP: tcpResolver,
+		udp:         udpResolver,
+	}
+
+	return r, nil
+}
+
+func (r *ResolverUT) Export() *ResolverExport {
+	re := r.ResolverTCP.Export()
+	re.Protocol = ResolverProtocolDefault
+	return re
+}
+
+func (r *ResolverUT) Close() {
+	r.ResolverTCP.Close()
+	r.udp.Close()
+	log.Infof("[%s] stopped", r.name)
+}
+
+func (r *ResolverUT) Query(ctx context.Context, msg []byte, isUDP bool) ([]byte, error) {
+	if isUDP {
+		return r.udp.Query(ctx, msg, true)
+	}
+	// If the query was not sent via UDP, don't forward it to the UDP backend,
+	// avoiding unnecessary truncation cases.
+	return r.ResolverTCP.Query(ctx, msg, false)
 }
 
 // ----------------------------------------------------------
@@ -208,7 +256,7 @@ func (r *ResolverUDP) Export() *ResolverExport {
 	}
 }
 
-func (r *ResolverUDP) Query(ctx context.Context, msg []byte) ([]byte, error) {
+func (r *ResolverUDP) Query(ctx context.Context, msg []byte, _ bool) ([]byte, error) {
 	r.wg.Add(1)
 	defer r.wg.Done()
 
@@ -284,7 +332,7 @@ func (r *ResolverUDP) worker(ctx context.Context) {
 					continue
 				}
 
-				log.Debugf("[%s] connected to %s", r.name, r.address)
+				log.Debugf("[%s] UDP connected to %s", r.name, r.address)
 				backoff = backoffBase
 
 				r.wg.Add(1)
@@ -312,7 +360,7 @@ func (r *ResolverUDP) receive(conn *net.UDPConn) {
 		n, err := conn.Read(buf)
 		if err != nil {
 			if errors.Is(err, net.ErrClosed) {
-				log.Debugf("[%s] connection closed; stop receiving", r.name)
+				log.Debugf("[%s] UDP connection closed; stop receiving", r.name)
 			} else {
 				log.Errorf("[%s] failed to read response: %v", r.name, err)
 			}
@@ -392,7 +440,7 @@ func (r *ResolverTCP) Export() *ResolverExport {
 	}
 }
 
-func (r *ResolverTCP) Query(ctx context.Context, msg []byte) ([]byte, error) {
+func (r *ResolverTCP) Query(ctx context.Context, msg []byte, _ bool) ([]byte, error) {
 	r.wg.Add(1)
 	defer r.wg.Done()
 

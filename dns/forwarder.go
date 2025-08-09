@@ -285,7 +285,7 @@ func (f *Forwarder) serveUDP(ctx context.Context, conn *net.UDPConn) {
 		go func() {
 			defer f.wg.Done()
 			log.Debugf("handle UDP query from %s", addr)
-			resp, _ := f.handleQuery(query)
+			resp, _ := f.handleQuery(query, true)
 			if resp != nil {
 				_, err = conn.WriteTo(resp, addr)
 				if err != nil {
@@ -381,7 +381,7 @@ func (f *Forwarder) handleDoH(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp, err := f.handleQuery(query)
+	resp, err := f.handleQuery(query, false)
 	if resp == nil {
 		http.Error(w, "400 bad request: "+err.Error(), http.StatusBadRequest)
 		return
@@ -425,7 +425,7 @@ func (f *Forwarder) handleTCP(ctx context.Context, conn net.Conn) {
 			return
 		}
 
-		resp, _ := f.handleQuery(query)
+		resp, _ := f.handleQuery(query, false)
 		if resp != nil {
 			binary.BigEndian.PutUint16(lbuf, uint16(len(resp)))
 			_, err := conn.Write(append(lbuf, resp...))
@@ -437,7 +437,7 @@ func (f *Forwarder) handleTCP(ctx context.Context, conn net.Conn) {
 	}
 }
 
-func (f *Forwarder) handleQuery(qmsg []byte) ([]byte, error) {
+func (f *Forwarder) handleQuery(qmsg []byte, isUDP bool) ([]byte, error) {
 	if n := len(qmsg); n <= minQuerySize {
 		log.Debugf("junk packet: length=%d", n)
 		// Unable to make a sensible reply; just drop it.
@@ -483,7 +483,7 @@ func (f *Forwarder) handleQuery(qmsg []byte) ([]byte, error) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), queryTimeout)
 	defer cancel()
-	resp, err := resolver.Query(ctx, msg)
+	resp, err := resolver.Query(ctx, msg, isUDP)
 	if err != nil {
 		return rresp, err
 	}
