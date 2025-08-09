@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"net"
 	"net/netip"
 	"sync"
@@ -22,6 +23,7 @@ import (
 
 	"kexuedns/config"
 	"kexuedns/log"
+	"kexuedns/util/dnsmsg"
 )
 
 var defaultTimeouts = struct {
@@ -57,6 +59,11 @@ const (
 	ResolverProtocolTCP     = "tcp"
 	ResolverProtocolDoT     = "dot" // DNS-over-TLS
 	ResolverProtocolDoH     = "doh" // DNS-over-HTTPS
+)
+
+const (
+	maxResponseSize = 4096 // bytes (consider EDNS0)
+	udpChannelSize  = 1024 // max number of in-flight UDP queries
 )
 
 type DNSResolver interface {
@@ -140,6 +147,8 @@ func (re *ResolverExport) Validate() error {
 // TODO: DoH (HTTPS) with auth (basic, bearer)
 func NewResolverFromExport(re *ResolverExport) (DNSResolver, error) {
 	switch re.Protocol {
+	case ResolverProtocolUDP:
+		return NewResolverUDP(re)
 	case ResolverProtocolTCP:
 		return NewResolverTCP(re)
 	case ResolverProtocolDoT:
@@ -147,8 +156,180 @@ func NewResolverFromExport(re *ResolverExport) (DNSResolver, error) {
 	default:
 		// TODO ResolverProtocolDefault
 		// TODO: ResolverProtocolDoH
-		// TODO: ResolverProtocolUDP
 		return nil, fmt.Errorf("unknown resolver protocol: %s", re.Protocol)
+	}
+}
+
+// ----------------------------------------------------------
+
+type ResolverUDP struct {
+	name    string
+	address netip.AddrPort
+
+	queries  chan []byte
+	sessions sync.Map // uint16(queryID) => *udpSession
+	rand     *rand.Rand
+
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
+}
+
+type udpSession struct {
+	response chan []byte
+}
+
+func NewResolverUDP(re *ResolverExport) (*ResolverUDP, error) {
+	if err := re.Validate(); err != nil {
+		return nil, err
+	}
+
+	addrport, _ := netip.ParseAddrPort(re.Address)
+	ctx, cancel := context.WithCancel(context.Background())
+
+	r := &ResolverUDP{
+		name:    re.Name,
+		address: addrport,
+		queries: make(chan []byte, udpChannelSize),
+		rand:    rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), 0)),
+		cancel:  cancel,
+	}
+
+	r.wg.Add(1)
+	go r.worker(ctx)
+
+	return r, nil
+}
+
+func (r *ResolverUDP) Export() *ResolverExport {
+	return &ResolverExport{
+		Name:     r.name,
+		Protocol: ResolverProtocolUDP,
+		Address:  r.address.String(),
+	}
+}
+
+func (r *ResolverUDP) Query(ctx context.Context, msg []byte) ([]byte, error) {
+	r.wg.Add(1)
+	defer r.wg.Done()
+
+	// Regenerate a random ID for the query to be forwarded, avoiding conflicts
+	// from multiple clients.
+	qmsg := dnsmsg.RawMsg(msg)
+	oldQID := qmsg.GetID()
+	newQID := uint16(r.rand.IntN(1 << 16))
+	qmsg.SetID(newQID)
+
+	respCh := make(chan []byte, 1)
+	r.sessions.Store(newQID, &udpSession{
+		response: respCh,
+	})
+	defer func() {
+		r.sessions.Delete(newQID)
+		close(respCh)
+	}()
+
+	select {
+	case r.queries <- []byte(qmsg):
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+
+	select {
+	case resp := <-respCh:
+		dnsmsg.RawMsg(resp).SetID(oldQID) // Recover the query ID.
+		return resp, nil
+	case <-ctx.Done():
+		log.Warnf("[%s] query timed out", r.name)
+		return nil, ctx.Err()
+	}
+}
+
+func (r *ResolverUDP) Close() {
+	r.cancel()
+	r.wg.Wait()
+	log.Infof("[%s] closed", r.name)
+}
+
+func (r *ResolverUDP) worker(ctx context.Context) {
+	defer r.wg.Done()
+
+	var conn *net.UDPConn
+	var (
+		backoffBase = 100 * time.Millisecond
+		backoffCap  = 1000 * time.Millisecond
+		backoff     = backoffBase
+	)
+
+	for {
+		select {
+		case <-ctx.Done():
+			if conn != nil {
+				conn.Close()
+			}
+			log.Infof("[%s] stopped worker", r.name)
+			return
+
+		case query := <-r.queries:
+			if conn == nil {
+				var err error
+				conn, err = net.DialUDP("udp", nil, net.UDPAddrFromAddrPort(r.address))
+				if err != nil {
+					log.Errorf("[%s] failed to dial UDP to %s", r.name, r.address)
+					time.Sleep(backoff)
+					backoff = min(backoff*2, backoffCap)
+					// Requeue the query for retry.
+					go func(q []byte) {
+						r.queries <- q
+					}(query)
+					continue
+				}
+
+				log.Debugf("[%s] connected to %s", r.name, r.address)
+				backoff = backoffBase
+
+				r.wg.Add(1)
+				go r.receive(conn)
+			}
+
+			if _, err := conn.Write(query); err != nil {
+				log.Errorf("[%s] failed to send query: %v", r.name, err)
+				conn.Close()
+				conn = nil
+				// Requeue the query for retry.
+				go func(q []byte) {
+					r.queries <- q
+				}(query)
+			}
+		}
+	}
+}
+
+func (r *ResolverUDP) receive(conn *net.UDPConn) {
+	defer r.wg.Done()
+
+	buf := make([]byte, maxResponseSize)
+	for {
+		n, err := conn.Read(buf)
+		if err != nil {
+			if errors.Is(err, net.ErrClosed) {
+				log.Debugf("[%s] connection closed; stop receiving", r.name)
+			} else {
+				log.Errorf("[%s] failed to read response: %v", r.name, err)
+			}
+			return
+		}
+
+		resp := make([]byte, n)
+		copy(resp, buf[:n])
+		queryID := dnsmsg.RawMsg(resp).GetID()
+		if v, ok := r.sessions.Load(queryID); ok {
+			session := v.(*udpSession)
+			select {
+			case session.response <- resp:
+			default:
+				// Drop if no one is waiting.
+			}
+		}
 	}
 }
 
