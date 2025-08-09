@@ -50,15 +50,17 @@ func New(
 	interval time.Duration,
 	onEviction func(string, any),
 ) *Cache {
-	if interval <= 0 {
-		interval = defaultInterval
+	if interval == 0 {
+		interval = defaultTTL / 2
+		if interval == 0 {
+			interval = defaultInterval
+		}
 	}
 	if onEviction == nil {
 		onEviction = nopEviction
 	}
 	c := &Cache{
 		items:      make(map[string]*cacheItem),
-		lock:       sync.RWMutex{},
 		defaultTTL: defaultTTL,
 		onEviction: onEviction,
 	}
