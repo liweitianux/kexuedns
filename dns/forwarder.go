@@ -394,8 +394,8 @@ func (f *Forwarder) handleDoH(w http.ResponseWriter, r *http.Request) {
 
 func (f *Forwarder) handleTCP(ctx context.Context, conn net.Conn) {
 	defer func() {
+		<-ctx.Done() // Cancellation from Stop().
 		conn.Close()
-		f.wg.Done()
 	}()
 
 	lbuf := make([]byte, 2)
@@ -415,14 +415,14 @@ func (f *Forwarder) handleTCP(ctx context.Context, conn net.Conn) {
 			} else {
 				log.Errorf("failed to read query length: %v", err)
 			}
-			return
+			break
 		}
 		// read query content
 		length := binary.BigEndian.Uint16(lbuf)
 		query := make([]byte, length)
 		if _, err := io.ReadFull(conn, query); err != nil {
 			log.Errorf("failed to read query content: %v", err)
-			return
+			break
 		}
 
 		resp, _ := f.handleQuery(query, false)
@@ -431,10 +431,12 @@ func (f *Forwarder) handleTCP(ctx context.Context, conn net.Conn) {
 			_, err := conn.Write(append(lbuf, resp...))
 			if err != nil {
 				log.Warnf("failed to send packet: %v", err)
-				return
+				break
 			}
 		}
 	}
+
+	f.wg.Done()
 }
 
 func (f *Forwarder) handleQuery(qmsg []byte, isUDP bool) ([]byte, error) {
