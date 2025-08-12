@@ -8,6 +8,7 @@
 package dns
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/binary"
@@ -16,7 +17,9 @@ import (
 	"io"
 	"math/rand/v2"
 	"net"
+	"net/http"
 	"net/netip"
+	"net/url"
 	"sync"
 	"syscall"
 	"time"
@@ -31,11 +34,13 @@ var defaultTimeouts = struct {
 	Write     time.Duration
 	Dial      time.Duration
 	Handshake time.Duration
+	Idle      time.Duration
 }{
 	Read:      15 * time.Second,
 	Write:     5 * time.Second,
 	Dial:      5 * time.Second,
 	Handshake: 5 * time.Second,
+	Idle:      90 * time.Second,
 }
 
 var defaultPoolSize = struct {
@@ -91,6 +96,8 @@ type ResolverExport struct {
 	DialTimeout int `json:"dial_timeout"`
 	// TLS handshake timeout (seconds)
 	HandshakeTimeout int `json:"handshake_timeout"`
+	// Idle connection timeout (seconds)
+	IdleTimeout int `json:"idle_timeout"` // DoH only
 
 	// TCP keepalive settings
 	KeepaliveEnable   bool `json:"keepalive_enable"`
@@ -128,6 +135,9 @@ func (re *ResolverExport) Validate() error {
 	if re.HandshakeTimeout == 0 {
 		re.HandshakeTimeout = int(defaultTimeouts.Handshake.Seconds())
 	}
+	if re.IdleTimeout == 0 {
+		re.IdleTimeout = int(defaultTimeouts.Idle.Seconds())
+	}
 
 	if re.KeepaliveEnable {
 		if re.KeepaliveIdle == 0 {
@@ -144,7 +154,6 @@ func (re *ResolverExport) Validate() error {
 	return nil
 }
 
-// TODO: DoH (HTTPS) with auth (basic, bearer)
 func NewResolverFromExport(re *ResolverExport) (Resolver, error) {
 	switch re.Protocol {
 	case ResolverProtocolDefault, "":
@@ -155,9 +164,9 @@ func NewResolverFromExport(re *ResolverExport) (Resolver, error) {
 		return NewResolverTCP(re)
 	case ResolverProtocolDoT:
 		return NewResolverDoT(re)
+	case ResolverProtocolDoH:
+		return NewResolverDoH(re)
 	default:
-		// TODO ResolverProtocolDefault
-		// TODO: ResolverProtocolDoH
 		return nil, fmt.Errorf("unknown resolver protocol: %s", re.Protocol)
 	}
 }
@@ -561,4 +570,122 @@ func (r *ResolverDoT) Export() *ResolverExport {
 	re.ServerName = r.tlsConfig.ServerName
 	re.HandshakeTimeout = int(r.handshakeTimeout.Seconds())
 	return re
+}
+
+// ----------------------------------------------------------
+
+type ResolverDoH struct {
+	name    string
+	address netip.AddrPort
+	url     *url.URL
+
+	tlsConfig     *tls.Config
+	keepAlive     net.KeepAliveConfig
+	dialTimeout   time.Duration
+	idleTimeout   time.Duration
+	poolMaxConns  int
+	poolIdleConns int
+	client        *http.Client
+
+	wg sync.WaitGroup
+}
+
+func NewResolverDoH(re *ResolverExport) (*ResolverDoH, error) {
+	if err := re.Validate(); err != nil {
+		return nil, err
+	}
+
+	addrport, _ := netip.ParseAddrPort(re.Address)
+
+	r := &ResolverDoH{
+		name:    re.Name,
+		address: addrport,
+		url: &url.URL{
+			Scheme: "https",
+			Host:   addrport.String(),
+			Path:   dohURI,
+		},
+		tlsConfig: &tls.Config{
+			RootCAs:    config.Get().CaPool,
+			ServerName: re.ServerName,
+		},
+		keepAlive: net.KeepAliveConfig{
+			Enable:   re.KeepaliveEnable,
+			Idle:     time.Duration(re.KeepaliveIdle) * time.Second,
+			Interval: time.Duration(re.KeepaliveInterval) * time.Second,
+			Count:    re.KeepaliveCount,
+		},
+		dialTimeout:   time.Duration(re.DialTimeout) * time.Second,
+		idleTimeout:   time.Duration(re.IdleTimeout) * time.Second,
+		poolMaxConns:  re.PoolMaxConns,
+		poolIdleConns: re.PoolIdleConns,
+	}
+	r.client = &http.Client{
+		Transport: &http.Transport{
+			DialContext: (&net.Dialer{
+				Timeout:         r.dialTimeout,
+				KeepAliveConfig: r.keepAlive,
+			}).DialContext,
+			TLSClientConfig:     r.tlsConfig,
+			MaxConnsPerHost:     r.poolMaxConns,
+			MaxIdleConns:        r.poolIdleConns,
+			MaxIdleConnsPerHost: r.poolIdleConns,
+			IdleConnTimeout:     r.idleTimeout,
+			ForceAttemptHTTP2:   true,
+		},
+	}
+
+	return r, nil
+}
+
+func (r *ResolverDoH) Export() *ResolverExport {
+	return &ResolverExport{
+		Name:       r.name,
+		Protocol:   ResolverProtocolDoH,
+		Address:    r.address.String(),
+		ServerName: r.tlsConfig.ServerName,
+
+		PoolMaxConns:  r.poolMaxConns,
+		PoolIdleConns: r.poolIdleConns,
+
+		DialTimeout: int(r.dialTimeout.Seconds()),
+		IdleTimeout: int(r.idleTimeout.Seconds()),
+
+		KeepaliveEnable:   r.keepAlive.Enable,
+		KeepaliveIdle:     int(r.keepAlive.Idle.Seconds()),
+		KeepaliveInterval: int(r.keepAlive.Interval.Seconds()),
+		KeepaliveCount:    r.keepAlive.Count,
+	}
+}
+
+func (r *ResolverDoH) Query(ctx context.Context, msg []byte, _ bool) ([]byte, error) {
+	r.wg.Add(1)
+	defer r.wg.Done()
+
+	req, err := http.NewRequestWithContext(ctx, "POST", r.url.String(), bytes.NewReader(msg))
+	if err != nil {
+		log.Errorf("[%s] failed to create DoH request: %v", r.name, err)
+		return nil, err
+	}
+	req.Header.Set("Content-Type", dohContentType)
+
+	resp, err := r.client.Do(req)
+	if err != nil {
+		log.Errorf("[%s] DoH request failed: %v", r.name, err)
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		log.Errorf("[%s] DoH server returned unexpected status: %s", r.name, resp.Status)
+		return nil, fmt.Errorf("DoH server returned %s", resp.Status)
+	}
+
+	log.Debugf("[%s] DoH response header: %+v", r.name, resp.Header)
+	return io.ReadAll(resp.Body)
+}
+
+func (r *ResolverDoH) Close() {
+	r.wg.Wait()
+	log.Infof("[%s] closed", r.name)
 }
