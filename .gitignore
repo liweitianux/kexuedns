@@ -4,5 +4,7 @@ _*
 *.log
 *.bak
 *.out
+*.key
+*.crt
 
 /ui/static/tailwindcss.js
