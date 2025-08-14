@@ -15,15 +15,15 @@ import (
 	"kexuedns/log"
 )
 
-type ApiHandler struct {
+type Handler struct {
 	forwarder *dns.Forwarder
 	config    *config.Config
 	myip      *config.MyIP
 	mux       *http.ServeMux
 }
 
-func NewApiHandler() *ApiHandler {
-	h := &ApiHandler{
+func New() *Handler {
+	h := &Handler{
 		forwarder: &dns.Forwarder{},
 		config:    config.Get(),
 		myip:      config.GetMyIP(),
@@ -36,7 +36,7 @@ func NewApiHandler() *ApiHandler {
 	return h
 }
 
-func (h *ApiHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.mux.ServeHTTP(w, r)
 }
 
@@ -45,7 +45,7 @@ func (h *ApiHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // Return:
 // - 500: error
 // - 204: success
-func (h *ApiHandler) start(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) start(w http.ResponseWriter, r *http.Request) {
 	if r := h.config.Resolver; r == nil {
 		log.Warnf("no resolver configured yet")
 	} else {
@@ -104,12 +104,12 @@ func (h *ApiHandler) start(w http.ResponseWriter, r *http.Request) {
 // Input: nil
 // Return:
 // - 204: success
-func (h *ApiHandler) stop(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) stop(w http.ResponseWriter, r *http.Request) {
 	h.forwarder.Stop()
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (h *ApiHandler) getVersion(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) getVersion(w http.ResponseWriter, r *http.Request) {
 	vi := config.GetVersion()
 	var resp = struct {
 		Version string `json:"version"`

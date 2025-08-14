@@ -92,7 +92,7 @@ func main() {
 		baseURL = "http://" + netip.AddrPortFrom(addr, uint16(*httpPort)).String()
 	}
 
-	apiHandler := api.NewApiHandler()
+	apiHandler := api.New()
 
 	mux := http.NewServeMux()
 	mux.Handle("/api/", http.StripPrefix("/api", apiHandler))
