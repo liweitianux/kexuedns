@@ -15,8 +15,6 @@ import (
 	"strings"
 
 	"golang.org/x/net/dns/dnsmessage"
-
-	"kexuedns/log"
 )
 
 const (
@@ -34,6 +32,15 @@ const (
 var (
 	ErrInvalidIP = errors.New("invalid/unspecified IP address")
 )
+
+type nestedError struct {
+	s   string // current level's error message
+	err error  // the nested error
+}
+
+func (e *nestedError) Error() string {
+	return e.s + ": " + e.err.Error()
+}
 
 // Session info to track and distinguish one specific query and response.
 type querySession struct {
@@ -60,14 +67,12 @@ func (m RawMsg) SessionKey() (string, error) {
 	var p dnsmessage.Parser
 	header, err := p.Start(m)
 	if err != nil {
-		log.Errorf("failed to parse message: %v", err)
-		return "", err
+		return "", &nestedError{"invalid message", err}
 	}
 	// Parse the question section and get the first one.
 	question, err := p.Question()
 	if err != nil {
-		log.Errorf("failed to parse question: %v", err)
-		return "", err
+		return "", &nestedError{"invalid question", err}
 	}
 
 	s := &querySession{
@@ -112,33 +117,28 @@ func NewQueryMsg(msg RawMsg) (*QueryMsg, error) {
 
 	qmsg.Header, err = p.Start(msg)
 	if err != nil {
-		log.Errorf("failed to parse message: %v", err)
-		return nil, err
+		return nil, &nestedError{"invalid message", err}
 	}
 
 	// Parse the question section.
 	qmsg.Question, err = p.Question()
 	if err != nil {
-		log.Errorf("failed to parse question: %v", err)
-		return nil, err
+		return nil, &nestedError{"invalid question", err}
 	}
 	// Ignore possible other questions.
 	err = p.SkipAllQuestions()
 	if err != nil {
-		log.Errorf("failed to skip questions: %v", err)
-		return nil, err
+		return nil, &nestedError{"skip questions error", err}
 	}
 
 	// Skip answer and authority sections.
 	err = p.SkipAllAnswers()
 	if err != nil {
-		log.Errorf("failed to skip answers: %v", err)
-		return nil, err
+		return nil, &nestedError{"skip answers error", err}
 	}
 	err = p.SkipAllAuthorities()
 	if err != nil {
-		log.Errorf("failed to skip authorities: %v", err)
-		return nil, err
+		return nil, &nestedError{"skip authorities error", err}
 	}
 
 	// Finally check for EDNS.
@@ -148,8 +148,7 @@ func NewQueryMsg(msg RawMsg) (*QueryMsg, error) {
 			break
 		}
 		if err != nil {
-			log.Errorf("failed to parse additional header: %v", err)
-			return nil, err
+			return nil, &nestedError{"invalid additional header", err}
 		}
 		if h.Type != dnsmessage.TypeOPT {
 			continue
@@ -157,8 +156,7 @@ func NewQueryMsg(msg RawMsg) (*QueryMsg, error) {
 
 		r, err := p.OPTResource()
 		if err != nil {
-			log.Errorf("failed to parse OPT resource: %v", err)
-			return nil, err
+			return nil, &nestedError{"invalid OPT resource", err}
 		}
 
 		qmsg.OPT.Header = &h
@@ -191,7 +189,6 @@ func (m *QueryMsg) SessionKey() string {
 
 func (m *QueryMsg) SetEdnsSubnet(ip netip.Addr, prefixLen int) error {
 	if !ip.IsValid() || ip.IsUnspecified() {
-		log.Errorf("invalid/unspecified IP address: %v", ip.String())
 		return ErrInvalidIP
 	}
 
@@ -241,7 +238,6 @@ func (m *QueryMsg) SetEdnsSubnet(ip netip.Addr, prefixLen int) error {
 	for i := 0; i < len(m.OPT.Options); i++ {
 		op := &m.OPT.Options[i]
 		if op.Code == option.Code {
-			log.Debugf("overriding existing EDNS subnet option")
 			op.Data = option.Data
 			exists = true
 			break
