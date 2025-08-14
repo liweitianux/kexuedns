@@ -158,12 +158,12 @@ func Load(dir string) error {
 			return err
 		}
 		pool := x509.NewCertPool()
-		if ok := conf.CaPool.AppendCertsFromPEM(certs); !ok {
-			log.Errorf("failed to append CA certs from file: %s", fp)
+		if ok := pool.AppendCertsFromPEM(certs); !ok {
+			log.Errorf("failed to append CAs from file: %s", fp)
 			return fmt.Errorf("invalid CA file: %s", fp)
 		}
 		conf.CaPool = pool
-		log.Infof("loaded CA certs from: %s", fp)
+		log.Infof("loaded CAs from: %s", fp)
 	} else {
 		pool, err := x509.SystemCertPool()
 		if err != nil {
