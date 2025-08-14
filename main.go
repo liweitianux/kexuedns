@@ -32,7 +32,7 @@ import (
 const progname = "KexueDNS"
 
 func main() {
-	isDebug := flag.Bool("debug", false, "enable debug profiling")
+	enablePprof := flag.Bool("pprof", false, "enable debug profiling")
 	logLevel := flag.String("log-level", "info", "log level: debug/info/notice/warn/error")
 	configDir := flag.String("config-dir", "",
 		fmt.Sprintf("config directory (default \"${XDG_CONFIG_HOME}/%s\")",
@@ -64,15 +64,13 @@ func main() {
 
 	if *configInit {
 		if err := config.Initialize(*configDir); err != nil {
-			fmt.Printf("ERROR: failed to initialize config: %v\n", err)
-			os.Exit(1)
+			log.Fatalf("failed to initialize config: %v", err)
 		}
 		return
 	}
 
 	if err := config.Load(*configDir); err != nil {
-		fmt.Printf("ERROR: failed to load config: %v\n", err)
-		os.Exit(1)
+		log.Fatalf("failed to load config: %v", err)
 	}
 
 	addr, err := netip.ParseAddr(*httpAddr)
@@ -98,17 +96,17 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.Handle("/api/", http.StripPrefix("/api", apiHandler))
-	mux.Handle("/static/", http.StripPrefix("/static/", ui.ServeStatic()))
+	mux.Handle("/static/", http.StripPrefix("/static", ui.ServeStatic()))
 	mux.HandleFunc("GET /{$}", ui.ServeIndex) // NOTE: Require Go 1.22+
 
-	if *isDebug {
+	if *enablePprof {
 		path := "/debug/pprof/"
 		mux.HandleFunc(path, pprof.Index)
 		mux.HandleFunc(path+"cmdline", pprof.Cmdline)
 		mux.HandleFunc(path+"profile", pprof.Profile)
 		mux.HandleFunc(path+"symbol", pprof.Symbol)
 		mux.HandleFunc(path+"trace", pprof.Trace)
-		log.Infof("enabled debug pprof at: %s%s", baseURL, path)
+		log.Infof("enabled debug profiling at: %s%s", baseURL, path)
 	}
 
 	listener, err := net.Listen("tcp", addrport.String())
