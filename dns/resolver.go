@@ -603,7 +603,7 @@ func NewResolverDoH(re *ResolverExport) (*ResolverDoH, error) {
 		url: &url.URL{
 			Scheme: "https",
 			Host:   addrport.String(),
-			Path:   dohURI,
+			Path:   dohPath,
 		},
 		tlsConfig: &tls.Config{
 			RootCAs:    config.Get().CaPool,

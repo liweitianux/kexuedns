@@ -34,7 +34,7 @@ const (
 
 	queryTimeout = 4 * time.Second // less than dig's default (5s)
 
-	dohURI         = "/dns-query"
+	dohPath        = "/dns-query"
 	dohContentType = "application/dns-message"
 )
 
@@ -343,7 +343,7 @@ func (f *Forwarder) serveDoH(ctx context.Context, ln net.Listener) {
 }
 
 func (f *Forwarder) handleDoH(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != dohURI {
+	if r.URL.Path != dohPath {
 		http.Error(w, "400 bad request: uri invalid", http.StatusBadRequest)
 		return
 	}
