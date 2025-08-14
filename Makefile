@@ -1,11 +1,13 @@
 NAME:=		Kexue DNS
 PROGNAME:=	kexuedns
 
-VERSION:=	$(shell sh aux/git-getversion.sh full --dirty)
-VERSION_DATE:=	$(shell sh aux/git-getversion.sh date)
+GIT_VERSION:=	$(shell git describe --tags --always)
+GIT_DIRTY:=	$(shell git diff --no-ext-diff --quiet || echo "+")
+GIT_DATE:=	$(shell git --no-pager log -1 --date=iso8601-strict --format="%cd")
+
 # Check more ldflags by 'go tool link'
-LDFLAGS+=	-X $(PROGNAME)/config.version=$(VERSION) \
-		-X $(PROGNAME)/config.versionDate=$(VERSION_DATE)
+LDFLAGS+=	-X $(PROGNAME)/config.version=$(GIT_VERSION)$(GIT_DIRTY) \
+		-X $(PROGNAME)/config.versionDate=$(GIT_DATE)
 BUILD_ARGS+=	-v -trimpath -ldflags "$(LDFLAGS)"
 
 # without debug
