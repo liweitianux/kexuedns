@@ -195,16 +195,11 @@ func (m *QueryMsg) SetEdnsSubnet(ip netip.Addr, prefixLen int) error {
 		return ErrInvalidIP
 	}
 
-	rh := dnsmessage.ResourceHeader{}
-	err := rh.SetEDNS0(maxPayloadSize, dnsmessage.RCodeSuccess, false)
-	if err != nil {
-		log.Errorf("failed to set EDNS0 for header")
-		return err
+	if m.OPT.Header == nil {
+		rh := dnsmessage.ResourceHeader{}
+		rh.SetEDNS0(maxPayloadSize, 0 /* extRCode */, false /* dnssecOK */)
+		m.OPT.Header = &rh
 	}
-	if m.OPT.Header != nil {
-		log.Debugf("overriding existing EDNS header")
-	}
-	m.OPT.Header = &rh
 
 	// Client Subnet (RFC 7871)
 	family := uint16(0)
@@ -232,7 +227,7 @@ func (m *QueryMsg) SetEdnsSubnet(ip netip.Addr, prefixLen int) error {
 	// - source-prefix-length (1B)
 	// - scope-prefix-length (1B)
 	// - address (variable; cut to source-prefix-length)
-	buf := []byte{}
+	buf := make([]byte, 0, 4+16)
 	buf = binary.BigEndian.AppendUint16(buf, family)
 	buf = append(buf, byte(prefixLen)) // source prefix length
 	buf = append(buf, byte(0))         // scope prefix length
