@@ -97,7 +97,7 @@ func (c *Cache) Set(key string, value any, ttl time.Duration) {
 }
 
 // Get the value of key, with a boolean indicating whether it was found.
-func (c *Cache) Get(key string) (any, bool) {
+func (c *Cache) Get(key string) (value any, exists bool) {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 
@@ -115,7 +115,7 @@ func (c *Cache) Get(key string) (any, bool) {
 // Similar to Get() but also remove it.
 // NOTE: The eviction callback will be skipped; otherwise, it might simply
 // destroy the returned value.
-func (c *Cache) Pop(key string) (any, bool) {
+func (c *Cache) Pop(key string) (value any, exists bool) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
