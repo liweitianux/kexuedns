@@ -38,8 +38,8 @@ var defaultTimeouts = struct {
 }{
 	Read:      15 * time.Second,
 	Write:     5 * time.Second,
-	Dial:      5 * time.Second,
-	Handshake: 5 * time.Second,
+	Dial:      1 * time.Second,
+	Handshake: 1 * time.Second,
 	Idle:      90 * time.Second,
 }
 
