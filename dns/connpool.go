@@ -19,7 +19,7 @@ import (
 )
 
 type ConnPool interface {
-	Get() (net.Conn, error)
+	Get(ctx context.Context) (net.Conn, error)
 	Put(conn net.Conn, discard bool)
 	Close()
 }
@@ -63,8 +63,11 @@ func NewConnPool(
 }
 
 // dial creates a new TCP connection with keepalive.
-func (p *ConnPoolTCP) dial() (net.Conn, error) {
-	conn, err := net.DialTimeout("tcp", p.address.String(), p.dialTimeout)
+func (p *ConnPoolTCP) dial(ctx context.Context) (net.Conn, error) {
+	ctx, cancel := context.WithTimeout(ctx, p.dialTimeout)
+	defer cancel()
+
+	conn, err := (&net.Dialer{}).DialContext(ctx, "tcp", p.address.String())
 	if err != nil {
 		return nil, err
 	}
@@ -79,9 +82,12 @@ func (p *ConnPoolTCP) dial() (net.Conn, error) {
 }
 
 // Get fetches a healthy connection from the pool (creates one if needed).
-func (p *ConnPoolTCP) Get() (conn net.Conn, err error) {
+func (p *ConnPoolTCP) Get(ctx context.Context) (conn net.Conn, err error) {
 	for {
 		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+
 		case pc := <-p.conns:
 			conn = pc.conn
 
@@ -95,7 +101,7 @@ func (p *ConnPoolTCP) Get() (conn net.Conn, err error) {
 
 			// Create a new one.
 			p.active.Add(1)
-			conn, err = p.dial()
+			conn, err = p.dial(ctx)
 			if err != nil {
 				log.Errorf("failed to connect to %s, error: %v", p.address, err)
 				p.active.Add(-1)
@@ -186,8 +192,8 @@ func NewConnPoolTLS(
 	}
 }
 
-func (p *ConnPoolTLS) Get() (net.Conn, error) {
-	conn, err := p.pool.Get()
+func (p *ConnPoolTLS) Get(ctx context.Context) (net.Conn, error) {
+	conn, err := p.pool.Get(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -197,7 +203,7 @@ func (p *ConnPoolTLS) Get() (net.Conn, error) {
 
 	// New TCP connection, wrap in TLS and do handshake.
 	tlsConn := tls.Client(conn, p.tlsConfig)
-	ctx, cancel := context.WithTimeout(context.Background(), p.handshakeTimeout)
+	ctx, cancel := context.WithTimeout(ctx, p.handshakeTimeout)
 	defer cancel()
 	if err := tlsConn.HandshakeContext(ctx); err != nil {
 		log.Errorf("TLS handshake failed: %v", err)

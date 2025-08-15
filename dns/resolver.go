@@ -475,7 +475,7 @@ func (r *ResolverTCP) Query(ctx context.Context, msg []byte, _ bool) ([]byte, er
 			conn = nil                 // just be safe
 		}
 
-		conn, err = r.connPool.Get()
+		conn, err = r.connPool.Get(ctx)
 		if err != nil {
 			log.Errorf("[%s] failed to get a connection: %v", r.name, err)
 			break
