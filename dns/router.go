@@ -52,8 +52,40 @@ type RouteExport struct {
 
 // Create the router from exported configs.
 func NewRouterFromExport(re *RouterExport) (*Router, error) {
-	// TODO
-	return nil, nil
+	r := &Router{}
+
+	if ree := re.Resolver; ree != nil {
+		res, err := NewResolverFromExport(ree)
+		if err != nil {
+			log.Errorf("failed to create resolver: %+v, error: %v", ree, err)
+			return nil, err
+		}
+		r.resolver = res
+	}
+	for i, route := range re.Routes {
+		if i >= MaxRoutes {
+			return nil, ErrRouteIndexInvalid
+		}
+		rr := &Route{
+			name: route.Name,
+			trie: &dnstrie.DNSTrie{},
+		}
+		if ree := route.Resolver; ree != nil {
+			res, err := NewResolverFromExport(ree)
+			if err != nil {
+				log.Errorf("failed to create route [%s] resolver: %+v, error: %v",
+					route.Name, ree, err)
+				return nil, err
+			}
+			rr.resolver = res
+		}
+		for _, z := range route.Zones {
+			rr.trie.AddZone(z, struct{}{})
+		}
+		r.routes[i] = rr
+	}
+
+	return r, nil
 }
 
 // Export the router configs for external interactions.
@@ -90,7 +122,7 @@ func (r *Router) SetResolver(re *ResolverExport) error {
 	r.lock.Lock()
 	defer r.lock.Unlock()
 
-	resolver, err := NewResolverFromExport(re)
+	res, err := NewResolverFromExport(re)
 	if err != nil {
 		log.Errorf("failed to create resolver: %+v, error: %v", re, err)
 		return err
@@ -100,8 +132,48 @@ func (r *Router) SetResolver(re *ResolverExport) error {
 		r.resolver.Close()
 	}
 
-	r.resolver = resolver
+	r.resolver = res
 	log.Infof("set default resolver: %+v", re)
+
+	return nil
+}
+
+// Set the index (index) route.
+// NOTE: re.Resolver and re.Zones may be empty to skip updating them.
+func (r *Router) SetRoute(index int, re *RouteExport) error {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+
+	if index <= 0 || index >= MaxRoutes {
+		return ErrRouteIndexInvalid
+	}
+
+	if r.routes[index] == nil {
+		r.routes[index] = &Route{}
+	}
+
+	route := r.routes[index]
+	if re.Name != "" {
+		route.name = re.Name
+	}
+	if ree := re.Resolver; ree != nil {
+		res, err := NewResolverFromExport(ree)
+		if err != nil {
+			log.Errorf("failed to create resolver: %+v, error: %v", ree, err)
+			return err
+		}
+		if route.resolver != nil {
+			route.resolver.Close()
+		}
+		route.resolver = res
+	}
+	if len(re.Zones) > 0 {
+		trie := &dnstrie.DNSTrie{}
+		for _, z := range re.Zones {
+			trie.AddZone(z, struct{}{})
+		}
+		route.trie = trie
+	}
 
 	return nil
 }
