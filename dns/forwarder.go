@@ -398,7 +398,7 @@ func (f *Forwarder) handleDoH(w http.ResponseWriter, r *http.Request) {
 }
 
 func (f *Forwarder) handleTCP(ctx context.Context, conn net.Conn) {
-	defer func() {
+	go func() {
 		<-ctx.Done() // Cancellation from Stop().
 		conn.Close()
 	}()
