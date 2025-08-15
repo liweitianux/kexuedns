@@ -422,6 +422,7 @@ func NewResolverTCP(re *ResolverExport) (*ResolverTCP, error) {
 			Interval: time.Duration(re.KeepaliveInterval) * time.Second,
 			Count:    re.KeepaliveCount,
 		},
+		dialTimeout:   time.Duration(re.DialTimeout) * time.Second,
 		poolMaxConns:  re.PoolMaxConns,
 		poolIdleConns: re.PoolIdleConns,
 	}
