@@ -57,6 +57,8 @@ type Forwarder struct {
 
 	cancel context.CancelFunc // cancel listners to stop the forwarder
 	wg     sync.WaitGroup     // wait for shutdown to complete
+
+	udpPool sync.Pool // Pool for UDP message buffers.
 }
 
 type ListenConfig struct {
@@ -202,6 +204,10 @@ func (f *Forwarder) Stop() {
 // Start the forwarder at the given address (address).
 // This function starts a goroutine to serve the queries so it doesn't block.
 func (f *Forwarder) Start() (err error) {
+	f.udpPool.New = func() any {
+		return make([]byte, maxQuerySize)
+	}
+
 	listenConfigs := map[dnsProto]*ListenConfig{
 		dnsProtoUDP: f.Listen,
 		dnsProtoTCP: f.Listen,
@@ -264,8 +270,8 @@ func (f *Forwarder) serveUDP(ctx context.Context, conn *net.UDPConn) {
 		conn.Close()
 	}()
 
-	buf := make([]byte, maxQuerySize)
 	for {
+		buf := f.udpPool.Get().([]byte)
 		n, addr, err := conn.ReadFrom(buf)
 		if err != nil {
 			if errors.Is(err, net.ErrClosed) {
@@ -278,21 +284,20 @@ func (f *Forwarder) serveUDP(ctx context.Context, conn *net.UDPConn) {
 			continue
 		}
 
-		query := make([]byte, n)
-		copy(query, buf[:n])
-
 		f.wg.Add(1)
-		go func() {
-			defer f.wg.Done()
+		go func(buf []byte, n int, addr net.Addr) {
 			log.Debugf("handle UDP query from %s", addr)
-			resp, _ := f.handleQuery(query, true)
+			resp, _ := f.handleQuery(buf[:n], true)
 			if resp != nil {
 				_, err = conn.WriteTo(resp, addr)
 				if err != nil {
 					log.Warnf("failed to send packet: %v", err)
 				}
 			}
-		}()
+
+			f.udpPool.Put(buf)
+			f.wg.Done()
+		}(buf, n, addr)
 	}
 }
 
