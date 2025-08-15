@@ -125,6 +125,9 @@ func (r *Router) GetResolver(name string) (Resolver, int) {
 
 // Close all resolvers.
 func (r *Router) Close() {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+
 	if r.resolver != nil {
 		r.resolver.Close()
 	}
