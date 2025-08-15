@@ -71,7 +71,7 @@ type Resolver struct {
 	Name string `json:"name"`
 	// Resolver protocol: default, dot, doh
 	Protocol string `json:"protocol"`
-	// Resolver address: "[ipv4]:port", "[ipv6]:port"
+	// Resolver address: "ipv4:port", "[ipv6]:port"
 	Address string `json:"address"`
 	// Server name (SNI) to verify the TLS certificate
 	ServerName string `json:"server_name"`
