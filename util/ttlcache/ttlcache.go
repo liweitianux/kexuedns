@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 //
-// Copyright (c) 2024 Aaron LI
+// Copyright (c) 2024-2025 Aaron LI
 //
 // TTL cache
 //
@@ -8,6 +8,7 @@
 package ttlcache
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"time"
@@ -28,6 +29,8 @@ type Cache struct {
 	lock       sync.RWMutex // protect concurrent cleanups
 	defaultTTL time.Duration
 	onEviction func(string, any)
+	cancel     context.CancelFunc
+	wg         sync.WaitGroup
 }
 
 type cacheItem struct {
@@ -59,13 +62,24 @@ func New(
 	if onEviction == nil {
 		onEviction = nopEviction
 	}
+
+	ctx, cancel := context.WithCancel(context.Background())
 	c := &Cache{
 		items:      make(map[string]*cacheItem),
 		defaultTTL: defaultTTL,
 		onEviction: onEviction,
+		cancel:     cancel,
 	}
-	go c.clean(interval)
+
+	c.wg.Add(1)
+	go c.clean(ctx, interval)
+
 	return c
+}
+
+func (c *Cache) Close() {
+	c.cancel()
+	c.wg.Wait()
 }
 
 // Add the key and value with the TTL.
@@ -158,16 +172,23 @@ func (c *Cache) getExpireAt(ttl time.Duration) int64 {
 	return time.Now().Add(ttl).UnixNano()
 }
 
-func (c *Cache) clean(interval time.Duration) {
+func (c *Cache) clean(ctx context.Context, interval time.Duration) {
 	type kvItem struct {
 		key   string
 		value any
 	}
 
 	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			// ok
+		case <-ctx.Done():
+			ticker.Stop()
+			c.wg.Done()
+			return
+		}
 
-	for range ticker.C {
 		evictedItems := []*kvItem{}
 		c.lock.Lock()
 		now := time.Now().UnixNano()

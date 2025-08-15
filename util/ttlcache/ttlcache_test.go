@@ -20,6 +20,7 @@ func TestEviction1(t *testing.T) {
 	evicted := 0
 	cache := New(10*time.Millisecond, 20*time.Millisecond,
 		func(key string, value any) { evicted++ })
+	defer cache.Close()
 
 	key := "hello"
 
@@ -46,6 +47,7 @@ func TestEviction2(t *testing.T) {
 	evicted := 0
 	cache := New(10*time.Millisecond, 20*time.Millisecond,
 		func(key string, value any) { evicted++ })
+	defer cache.Close()
 
 	keys := []string{"hello", "world", "yo"}
 	for _, key := range keys {
@@ -62,6 +64,7 @@ func TestEviction3(t *testing.T) {
 	evicted := 0
 	cache := New(100*time.Millisecond, 20*time.Millisecond,
 		func(key string, value any) { evicted++ })
+	defer cache.Close()
 
 	key := "hello"
 	cache.Set(key, "hoho", 10*time.Millisecond)
