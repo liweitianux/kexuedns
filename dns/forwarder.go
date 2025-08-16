@@ -112,72 +112,36 @@ func (lc *ListenConfig) listen(proto dnsProto) (io.Closer, error) {
 }
 
 // Set the address of UDP+TCP listeners.
-func (f *Forwarder) SetListen(ip string, port uint16) error {
-	if ip == "" {
-		f.Listen = nil
-		return nil
-	}
-
-	if port == 0 {
-		port = 53
-	}
-	lc, err := f.makeListenConfig(ip, port, "", "")
-	if err != nil {
-		return err
-	}
-
-	f.Listen = lc
-	return nil
+func (f *Forwarder) SetListen(address string) error {
+	var err error
+	f.Listen, err = f.makeListenConfig(address, "", "")
+	return err
 }
 
 // Set the address and certificate of DoT listener.
-func (f *Forwarder) SetListenDoT(ip string, port uint16, certFile, keyFile string) error {
-	if ip == "" {
-		f.ListenDoT = nil
-		return nil
-	}
-
-	if port == 0 {
-		port = 853
-	}
-	lc, err := f.makeListenConfig(ip, port, certFile, keyFile)
-	if err != nil {
-		return err
-	}
-
-	f.ListenDoT = lc
-	return nil
+func (f *Forwarder) SetListenDoT(address string, certFile, keyFile string) error {
+	var err error
+	f.ListenDoT, err = f.makeListenConfig(address, certFile, keyFile)
+	return err
 }
 
 // Set the address and certificate of DoH listener.
-func (f *Forwarder) SetListenDoH(ip string, port uint16, certFile, keyFile string) error {
-	if ip == "" {
-		f.ListenDoH = nil
-		return nil
-	}
-
-	if port == 0 {
-		port = 443
-	}
-	lc, err := f.makeListenConfig(ip, port, certFile, keyFile)
-	if err != nil {
-		return err
-	}
-
-	f.ListenDoH = lc
-	return nil
+func (f *Forwarder) SetListenDoH(address string, certFile, keyFile string) error {
+	var err error
+	f.ListenDoH, err = f.makeListenConfig(address, certFile, keyFile)
+	return err
 }
 
 func (f *Forwarder) makeListenConfig(
-	ip string, port uint16, certFile, keyFile string,
+	address string, certFile, keyFile string,
 ) (*ListenConfig, error) {
-	addr, err := netip.ParseAddr(ip)
+	addrport, err := netip.ParseAddrPort(address)
 	if err != nil {
-		return nil, fmt.Errorf("invalid IP address [%s]: %v", ip, err)
+		return nil, fmt.Errorf("invalid address: %s, error: %v", address, err)
 	}
 
 	lc := &ListenConfig{
-		Address: netip.AddrPortFrom(addr, port),
+		Address: addrport,
 	}
 
 	if certFile != "" && keyFile != "" {
