@@ -481,12 +481,11 @@ func (r *ResolverTCP) Query(ctx context.Context, msg []byte, _ bool) ([]byte, er
 			break
 		}
 
-		// Apply deadline from context.
+		// Apply write deadline from context.
 		if deadline, ok := ctx.Deadline(); ok {
-			conn.SetDeadline(deadline)
+			conn.SetWriteDeadline(deadline)
 		} else {
 			conn.SetWriteDeadline(time.Now().Add(defaultTimeouts.Write))
-			conn.SetReadDeadline(time.Now().Add(defaultTimeouts.Read))
 		}
 
 		// Send query packet.
@@ -500,6 +499,13 @@ func (r *ResolverTCP) Query(ctx context.Context, msg []byte, _ bool) ([]byte, er
 			continue // retry
 		}
 		log.Debugf("[%s] sent query", r.name)
+
+		// Apply read deadline from context.
+		if deadline, ok := ctx.Deadline(); ok {
+			conn.SetReadDeadline(deadline)
+		} else {
+			conn.SetReadDeadline(time.Now().Add(defaultTimeouts.Read))
+		}
 
 		// Read response length.
 		lbuf := make([]byte, 2)
