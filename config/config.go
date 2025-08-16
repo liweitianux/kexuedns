@@ -31,9 +31,9 @@ type Config struct {
 }
 
 type ConfigFile struct {
-	// The listening address and port of the DNS service (UDP+TCP).
-	ListenAddr string `json:"listen_addr"`
-	ListenPort uint16 `json:"listen_port"`
+	// The listen address: "ipv4:port", "[ipv6]:port"
+	// Default protocols: UDP+TCP
+	ListenAddress string `json:"listen_address"`
 	// The configs for listening DoT protocol.
 	ListenDoT *ListenConfig `json:"listen_dot"`
 	// The configs for listening DoH protocol.
@@ -49,18 +49,14 @@ type ConfigFile struct {
 }
 
 func (cf *ConfigFile) setDefaults() {
-	if cf.ListenAddr == "" {
-		cf.ListenAddr = "127.0.0.1"
-	}
-	if cf.ListenPort == 0 {
-		cf.ListenPort = uint16(5553)
+	if cf.ListenAddress == "" {
+		cf.ListenAddress = "127.0.0.1:5553"
 	}
 }
 
 type ListenConfig struct {
-	// The listening address and port.
-	Addr string `json:"addr"`
-	Port uint16 `json:"port"`
+	// The listen address: "ipv4:port", "[ipv6]:port"
+	Address string `json:"address"`
 	// The TLS certificate and key pair.
 	CertFile path `json:"cert_file"`
 	KeyFile  path `json:"key_file"`

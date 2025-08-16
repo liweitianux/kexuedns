@@ -62,7 +62,7 @@ func (h *Handler) start(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	err := h.forwarder.SetListen(h.config.ListenAddr, h.config.ListenPort)
+	err := h.forwarder.SetListen(h.config.ListenAddress)
 	if err != nil {
 		log.Errorf("failed to set UDP+TCP listen: %v", err)
 		http.Error(w, "set UDP+TCP listen failure: "+err.Error(),
@@ -71,7 +71,7 @@ func (h *Handler) start(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if dot := h.config.ListenDoT; dot != nil {
-		err := h.forwarder.SetListenDoT(dot.Addr, dot.Port,
+		err := h.forwarder.SetListenDoT(dot.Address,
 			dot.CertFile.Path(), dot.KeyFile.Path())
 		if err != nil {
 			log.Errorf("failed to set DoT listen: %v", err)
@@ -82,7 +82,7 @@ func (h *Handler) start(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if doh := h.config.ListenDoH; doh != nil {
-		err := h.forwarder.SetListenDoH(doh.Addr, doh.Port,
+		err := h.forwarder.SetListenDoH(doh.Address,
 			doh.CertFile.Path(), doh.KeyFile.Path())
 		if err != nil {
 			log.Errorf("failed to set DoH listen: %v", err)
