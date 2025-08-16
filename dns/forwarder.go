@@ -32,7 +32,9 @@ const (
 	maxQuerySize = 512 // bytes
 	minQuerySize = 12  // bytes (header length)
 
-	queryTimeout = 4 * time.Second // less than dig's default (5s)
+	queryTimeout    = 4 * time.Second // less than dig's default (5s)
+	tcpReadTimeout  = 5 * time.Second // read timeout for TCP/DoT queries
+	tcpWriteTimeout = 5 * time.Second // write timeout for TCP/DoT queries
 
 	dohPath        = "/dns-query"
 	dohContentType = "application/dns-message"
@@ -411,7 +413,8 @@ func (f *Forwarder) handleTCP(ctx context.Context, conn net.Conn) {
 		}
 		log.Debugf("handle %s query from %s", proto, conn.RemoteAddr())
 
-		// read query length
+		conn.SetReadDeadline(time.Now().Add(tcpReadTimeout))
+		// Read query length.
 		if _, err := io.ReadFull(conn, lbuf); err != nil {
 			if errors.Is(err, io.EOF) {
 				log.Debugf("remote closed connection")
@@ -422,7 +425,7 @@ func (f *Forwarder) handleTCP(ctx context.Context, conn net.Conn) {
 			}
 			break
 		}
-		// read query content
+		// Read query content.
 		length := binary.BigEndian.Uint16(lbuf)
 		query := make([]byte, length)
 		if _, err := io.ReadFull(conn, query); err != nil {
@@ -432,6 +435,8 @@ func (f *Forwarder) handleTCP(ctx context.Context, conn net.Conn) {
 
 		resp, _ := f.handleQuery(query, false)
 		if resp != nil {
+			conn.SetWriteDeadline(time.Now().Add(tcpWriteTimeout))
+			// Prepend response length and send.
 			binary.BigEndian.PutUint16(lbuf, uint16(len(resp)))
 			_, err := conn.Write(append(lbuf, resp...))
 			if err != nil {
