@@ -31,6 +31,9 @@ type Config struct {
 }
 
 type ConfigFile struct {
+	// The non-privileged user to run the program after binding the sockets.
+	User string `json:"user"`
+
 	// The listen address: "ipv4:port", "[ipv6]:port"
 	// Default protocols: UDP+TCP
 	ListenAddress string `json:"listen_address"`

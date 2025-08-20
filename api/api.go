@@ -92,7 +92,7 @@ func (h *Handler) start(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := h.forwarder.Start(); err != nil {
+	if err := h.forwarder.Start(h.config.User); err != nil {
 		http.Error(w, "start failure: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
