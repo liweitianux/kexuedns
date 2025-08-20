@@ -109,7 +109,7 @@ type QueryMsg struct {
 	}
 }
 
-func NewQueryMsg(msg RawMsg) (*QueryMsg, error) {
+func NewQueryMsg(msg []byte) (*QueryMsg, error) {
 	qmsg := &QueryMsg{}
 
 	var err error
@@ -250,7 +250,7 @@ func (m *QueryMsg) SetEdnsSubnet(ip netip.Addr, prefixLen int) error {
 	return nil
 }
 
-func (m *QueryMsg) Build() (RawMsg, error) {
+func (m *QueryMsg) Build() ([]byte, error) {
 	msg := dnsmessage.Message{
 		Header:    m.Header,
 		Questions: []dnsmessage.Question{m.Question},
