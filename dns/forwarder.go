@@ -18,10 +18,14 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"os"
+	"os/user"
+	"strconv"
 	"sync"
 	"time"
 
 	"golang.org/x/net/dns/dnsmessage"
+	"golang.org/x/sys/unix"
 
 	"kexuedns/config"
 	"kexuedns/log"
@@ -169,7 +173,7 @@ func (f *Forwarder) Stop() {
 
 // Start the forwarder at the given address (address).
 // This function starts a goroutine to serve the queries so it doesn't block.
-func (f *Forwarder) Start() (err error) {
+func (f *Forwarder) Start(username string) (err error) {
 	f.udpPool.New = func() any {
 		return make([]byte, maxQuerySize)
 	}
@@ -207,6 +211,11 @@ func (f *Forwarder) Start() (err error) {
 		return
 	}
 
+	err = f.dropPrivileges(username)
+	if err != nil {
+		return
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	f.cancel = cancel
 
@@ -227,6 +236,38 @@ func (f *Forwarder) Start() (err error) {
 	}
 
 	return
+}
+
+func (f *Forwarder) dropPrivileges(username string) error {
+	if id := os.Geteuid(); id != 0 {
+		log.Debugf("not running as root (euid=%d); no privileges to drop", id)
+		return nil
+	}
+
+	if username == "" {
+		log.Warnf("RUNNING AS ROOT")
+		return nil
+	}
+
+	u, err := user.Lookup(username)
+	if err != nil {
+		log.Errorf("failed to lookup user [%s]: %v", username, err)
+		return err
+	}
+
+	uid, _ := strconv.Atoi(u.Uid)
+	gid, _ := strconv.Atoi(u.Gid)
+	if err := unix.Setgid(gid); err != nil {
+		log.Errorf("setgid(%d) failed: %v", gid, err)
+		return err
+	}
+	if err := unix.Setuid(uid); err != nil {
+		log.Errorf("setuid(%d) failed: %v", uid, err)
+		return err
+	}
+
+	log.Infof("dropped root to user %s (uid=%d, gid=%d)", username, uid, gid)
+	return nil
 }
 
 func (f *Forwarder) serveUDP(ctx context.Context, conn *net.UDPConn) {
