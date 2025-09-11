@@ -419,12 +419,14 @@ func (f *Forwarder) handleTCP(ctx context.Context, conn net.Conn) {
 		conn.SetDeadline(time.Unix(1, 0))
 	}()
 
+	proto := "TCP"
+	if _, ok := conn.(*tls.Conn); ok {
+		proto = "DoT"
+	}
+	log.Debugf("accepted %s connection from %s", proto, conn.RemoteAddr())
+
 	lbuf := make([]byte, 2)
 	for {
-		proto := "TCP"
-		if _, ok := conn.(*tls.Conn); ok {
-			proto = "DoT"
-		}
 		log.Debugf("handle %s query from %s", proto, conn.RemoteAddr())
 
 		conn.SetReadDeadline(time.Now().Add(tcpReadTimeout))
