@@ -69,6 +69,10 @@ const (
 const (
 	maxResponseSize = 4096 // bytes (consider EDNS0)
 	udpChannelSize  = 1024 // max number of in-flight UDP queries
+
+	// Max attempts in randomly generating a query ID to track the
+	// in-flight UDP queries
+	qidAllocMaxAttempts = 10
 )
 
 type Resolver interface {
@@ -269,22 +273,33 @@ func (r *ResolverUDP) Query(ctx context.Context, msg []byte, _ bool) ([]byte, er
 	r.wg.Add(1)
 	defer r.wg.Done()
 
-	// Regenerate a random ID for the query to be forwarded, avoiding conflicts
-	// from multiple clients.
 	qmsg := dnsmsg.RawMsg(msg)
 	oldQID := qmsg.GetID()
-	newQID := uint16(r.rand.IntN(1 << 16))
-	qmsg.SetID(newQID)
-
 	respCh := make(chan []byte, 1)
-	r.sessions.Store(newQID, &udpSession{
-		response: respCh,
-	})
+
+	// Regenerate a random ID for the query to be forwarded, avoiding conflicts
+	// from multiple clients.
+	var newQID uint16
+	var stored bool
+	for i := 0; i < qidAllocMaxAttempts; i++ {
+		newQID = uint16(r.rand.IntN(1 << 16))
+		_, loaded := r.sessions.LoadOrStore(newQID, &udpSession{
+			response: respCh,
+		})
+		if !loaded {
+			stored = true
+			break
+		}
+	}
+	if !stored {
+		return nil, errors.New("query ID allocation failure")
+	}
 	defer func() {
 		r.sessions.Delete(newQID)
 		close(respCh)
 	}()
 
+	qmsg.SetID(newQID)
 	select {
 	case r.queries <- []byte(qmsg):
 	case <-ctx.Done():
