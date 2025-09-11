@@ -199,8 +199,8 @@ func (m *QueryMsg) SetEdnsSubnet(ip netip.Addr, prefixLen int) error {
 	}
 
 	// Client Subnet (RFC 7871)
-	family := uint16(0)
-	address := []byte{}
+	var family uint16
+	var address []byte
 	if ip.Is4() {
 		family = uint16(1)
 		if prefixLen <= 0 || prefixLen > 32 {
