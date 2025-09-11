@@ -1,7 +1,17 @@
+// SPDX-License-Identifier: MIT
+//
+// Copyright (c) 2025 Aaron LI
+//
+// DNS message - tests
+//
+
 package dnsmsg
 
 import (
+	"encoding/binary"
+	"errors"
 	"fmt"
+	"net/netip"
 	"testing"
 
 	"golang.org/x/net/dns/dnsmessage"
@@ -91,4 +101,110 @@ func TestQueryMsg2(t *testing.T) {
 	}
 }
 
-// TODO: SetEdnsSubnet()
+func TestSetEdnsSubnet1(t *testing.T) {
+	qmsg := &QueryMsg{
+		Header: dnsmessage.Header{ID: uint16(0x1234)},
+		Question: dnsmessage.Question{
+			Name:  dnsmessage.MustNewName("www.example.com."),
+			Type:  dnsmessage.TypeA,
+			Class: dnsmessage.ClassINET,
+		},
+		// OPT: empty
+	}
+	if _, err := qmsg.Build(); err != nil {
+		t.Errorf(`QueryMsg.Build() failed: %v`, err)
+	}
+
+	newIP := func(s string) *netip.Addr {
+		addr, err := netip.ParseAddr(s)
+		if err != nil {
+			panic(err)
+		}
+		return &addr
+	}
+
+	tests := []struct {
+		ip       *netip.Addr
+		plen     int
+		expected string
+	}{
+		{ip: nil, plen: 0, expected: ""},
+		{ip: newIP("1.2.3.4"), plen: 0, expected: "1.2.3.0/24"},
+		{ip: newIP("1.2.3.4"), plen: 24, expected: "1.2.3.0/24"},
+		{ip: newIP("1.2.3.4"), plen: 32, expected: "1.2.3.4/32"},
+		{ip: newIP("1.2.3.4"), plen: 16, expected: "1.2.0.0/16"},
+		{ip: newIP("1.2.255.0"), plen: 20, expected: "1.2.240.0/20"},
+		{ip: newIP("fd00:11:22:33:1:2:3:4"), plen: 0, expected: "fd00:11:22::/56"},
+		{ip: newIP("fd00:11:22:33:1:2:3:4"), plen: 64, expected: "fd00:11:22:33::/64"},
+		{ip: newIP("fd00:11:22:33:1:2:3:4"), plen: 80, expected: "fd00:11:22:33:1::/80"},
+		{ip: newIP("fd00:11:22:33:1:2:3:4"), plen: 128, expected: "fd00:11:22:33:1:2:3:4/128"},
+	}
+	for _, tc := range tests {
+		if tc.ip != nil {
+			err := qmsg.SetEdnsSubnet(*tc.ip, tc.plen)
+			if err != nil {
+				t.Errorf(`QueryMsg.SetEdnsSubnet() failed: %v`, err)
+			}
+		}
+		if msg, err := qmsg.Build(); err != nil {
+			t.Errorf(`QueryMsg.Build() failed: %v`, err)
+		} else {
+			ecs, err := getEdnsSubnet(msg)
+			if err != nil || ecs != tc.expected {
+				t.Errorf(`QueryMsg.SetEdnsSubnet() => ECS (%q, %v); want %q`,
+					ecs, err, tc.expected)
+			}
+		}
+	}
+}
+
+func getEdnsSubnet(msg []byte) (string, error) {
+	var dmsg dnsmessage.Message
+	if err := dmsg.Unpack(msg); err != nil {
+		return "", err
+	}
+
+	var opECS *dnsmessage.Option
+	for _, r := range dmsg.Additionals {
+		if r.Header.Type == dnsmessage.TypeOPT {
+			options := r.Body.(*dnsmessage.OPTResource).Options
+			for i := 0; i < len(options); i++ {
+				if options[i].Code == optionCodeSubnet {
+					opECS = &options[i]
+					break
+				}
+			}
+		}
+		if opECS != nil {
+			break
+		}
+	}
+	if opECS == nil {
+		return "", nil
+	}
+
+	ecsData := opECS.Data
+	if len(ecsData) < 4 {
+		return "", errors.New("invalid ECS data")
+	}
+
+	family := binary.BigEndian.Uint16(ecsData)
+	sourcePlen := int(ecsData[2])
+
+	var addr netip.Addr
+	switch family {
+	case uint16(1): // IPv4
+		var ip [4]byte
+		copy(ip[:], ecsData[4:])
+		addr = netip.AddrFrom4(ip)
+	case uint16(2): // IPv6
+		var ip [16]byte
+		copy(ip[:], ecsData[4:])
+		addr = netip.AddrFrom16(ip)
+	default:
+		return "", fmt.Errorf("invalid ECS family (%d)", family)
+	}
+
+	ecs := fmt.Sprintf("%s/%d", addr.String(), sourcePlen)
+	return ecs, nil
+}
