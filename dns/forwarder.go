@@ -92,6 +92,11 @@ func (lc *ListenConfig) listen(proto dnsProto) (io.Closer, error) {
 		log.Infof("bound TCP forwarder at: %s", lc.Address)
 		return ln, nil
 	case dnsProtoDoT, dnsProtoDoH:
+		if len(lc.Certificate.Certificate) == 0 {
+			err := errors.New("certificate required but missing")
+			log.Errorf("failed to listen DoT/DoH at: %s, error: %v", lc.Address, err)
+			return nil, err
+		}
 		config := &tls.Config{
 			Certificates: []tls.Certificate{lc.Certificate},
 			GetConfigForClient: func(chi *tls.ClientHelloInfo) (*tls.Config, error) {
