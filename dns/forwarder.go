@@ -69,7 +69,7 @@ type Forwarder struct {
 
 type ListenConfig struct {
 	Address     netip.AddrPort
-	Certificate *tls.Certificate
+	Certificate tls.Certificate
 }
 
 func (lc *ListenConfig) listen(proto dnsProto) (io.Closer, error) {
@@ -93,7 +93,7 @@ func (lc *ListenConfig) listen(proto dnsProto) (io.Closer, error) {
 		return ln, nil
 	case dnsProtoDoT, dnsProtoDoH:
 		config := &tls.Config{
-			Certificates: []tls.Certificate{*lc.Certificate},
+			Certificates: []tls.Certificate{lc.Certificate},
 			GetConfigForClient: func(chi *tls.ClientHelloInfo) (*tls.Config, error) {
 				log.Debugf("TLS connection from %s with ServerName=[%s]",
 					chi.Conn.RemoteAddr(), chi.ServerName)
@@ -149,12 +149,11 @@ func (f *Forwarder) makeListenConfig(
 	}
 
 	if certFile != "" && keyFile != "" {
-		cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+		var err error
+		lc.Certificate, err = tls.LoadX509KeyPair(certFile, keyFile)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load cert/key pair: %v", err)
 		}
-
-		lc.Certificate = &cert
 	}
 
 	return lc, nil
