@@ -445,8 +445,12 @@ func (f *Forwarder) handleTCP(ctx context.Context, conn net.Conn) {
 			}
 			return
 		}
-		// Read query content.
 		length := binary.BigEndian.Uint16(lbuf)
+		if length == 0 || length > maxQuerySize {
+			log.Debugf("invalid length=%d", length)
+			return
+		}
+		// Read query content.
 		query := make([]byte, length)
 		if _, err := io.ReadFull(conn, query); err != nil {
 			log.Errorf("failed to read query content: %v", err)
