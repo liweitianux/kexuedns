@@ -101,6 +101,170 @@ func TestQueryMsg2(t *testing.T) {
 	}
 }
 
+func TestQueryMsg3(t *testing.T) {
+	resOPT1 := dnsmessage.Resource{
+		Header: dnsmessage.ResourceHeader{
+			Name:  dnsmessage.MustNewName("."),
+			Type:  dnsmessage.TypeOPT,
+			Class: dnsmessage.ClassINET,
+		},
+		Body: &dnsmessage.OPTResource{
+			Options: []dnsmessage.Option{
+				{
+					Code: 1,
+					Data: []byte{1, 2, 3},
+				},
+			},
+		},
+	}
+	resOPT2 := dnsmessage.Resource{
+		Header: dnsmessage.ResourceHeader{
+			Name:  dnsmessage.MustNewName("."),
+			Type:  dnsmessage.TypeOPT,
+			Class: dnsmessage.ClassINET,
+		},
+		Body: &dnsmessage.OPTResource{
+			Options: []dnsmessage.Option{
+				{
+					Code: 2,
+					Data: []byte{3, 2, 1},
+				},
+				{
+					Code: 8,
+					Data: []byte{0, 1, 0, 1, 0, 1},
+				},
+			},
+		},
+	}
+	resA1 := dnsmessage.Resource{
+		Header: dnsmessage.ResourceHeader{
+			Name:  dnsmessage.MustNewName("www.example.com."),
+			Type:  dnsmessage.TypeA,
+			Class: dnsmessage.ClassINET,
+		},
+		Body: &dnsmessage.AResource{
+			A: [4]byte{1, 2, 3, 4},
+		},
+	}
+	resTXT1 := dnsmessage.Resource{
+		Header: dnsmessage.ResourceHeader{
+			Name:  dnsmessage.MustNewName("www.example.com."),
+			Type:  dnsmessage.TypeTXT,
+			Class: dnsmessage.ClassINET,
+		},
+		Body: &dnsmessage.TXTResource{
+			TXT: []string{"hello", "world"},
+		},
+	}
+
+	header := dnsmessage.Header{ID: uint16(0x1234)}
+	question := dnsmessage.Question{
+		Name:  dnsmessage.MustNewName("www.example.com."),
+		Type:  dnsmessage.TypeA,
+		Class: dnsmessage.ClassINET,
+	}
+
+	tests := []struct {
+		dmsg     *dnsmessage.Message
+		optOpLen int
+	}{
+		{
+			dmsg: &dnsmessage.Message{
+				Header:    header,
+				Questions: []dnsmessage.Question{question},
+			},
+			optOpLen: 0,
+		},
+		{
+			dmsg: &dnsmessage.Message{
+				Header:      header,
+				Questions:   []dnsmessage.Question{question},
+				Additionals: []dnsmessage.Resource{resOPT1},
+			},
+			optOpLen: 1,
+		},
+		{
+			dmsg: &dnsmessage.Message{
+				Header:      header,
+				Questions:   []dnsmessage.Question{question},
+				Additionals: []dnsmessage.Resource{resOPT1, resOPT2},
+			},
+			optOpLen: 1,
+		},
+		{
+			dmsg: &dnsmessage.Message{
+				Header:      header,
+				Questions:   []dnsmessage.Question{question},
+				Additionals: []dnsmessage.Resource{resOPT2, resOPT1},
+			},
+			optOpLen: 2,
+		},
+		{
+			dmsg: &dnsmessage.Message{
+				Header:      header,
+				Questions:   []dnsmessage.Question{question},
+				Additionals: []dnsmessage.Resource{resA1},
+			},
+			optOpLen: 0,
+		},
+		{
+			dmsg: &dnsmessage.Message{
+				Header:      header,
+				Questions:   []dnsmessage.Question{question},
+				Additionals: []dnsmessage.Resource{resA1, resTXT1},
+			},
+			optOpLen: 0,
+		},
+		{
+			dmsg: &dnsmessage.Message{
+				Header:      header,
+				Questions:   []dnsmessage.Question{question},
+				Additionals: []dnsmessage.Resource{resA1, resOPT1},
+			},
+			optOpLen: 1,
+		},
+		{
+			dmsg: &dnsmessage.Message{
+				Header:      header,
+				Questions:   []dnsmessage.Question{question},
+				Additionals: []dnsmessage.Resource{resOPT1, resTXT1},
+			},
+			optOpLen: 1,
+		},
+		{
+			dmsg: &dnsmessage.Message{
+				Header:      header,
+				Questions:   []dnsmessage.Question{question},
+				Additionals: []dnsmessage.Resource{resA1, resOPT2, resTXT1},
+			},
+			optOpLen: 2,
+		},
+	}
+
+	for i, tc := range tests {
+		msg, _ := tc.dmsg.Pack()
+		q, err := NewQueryMsg(msg)
+		if q == nil || err != nil {
+			t.Errorf(`[%d] NewQueryMsg() = (%v, %v); want (!nil, nil)`, i, q, err)
+		}
+		if oplen := tc.optOpLen; oplen == 0 {
+			if q.OPT.Header != nil {
+				t.Errorf(`[%d] OPT.Header = %v; want nil`, i, q.OPT.Header)
+			}
+			if l := len(q.OPT.Options); l != 0 {
+				t.Errorf(`[%d] len(OPT.Options) = %d; want 0`, i, l)
+			}
+		} else {
+			if q.OPT.Header == nil {
+				t.Errorf(`[%d] OPT.Header = nil; want !nil`, i)
+			}
+			if l := len(q.OPT.Options); l != oplen {
+				t.Errorf(`[%d] len(OPT.Options) = %d; want %d`, i, l, oplen)
+			}
+		}
+	}
+}
+
 func TestSetEdnsSubnet1(t *testing.T) {
 	qmsg := &QueryMsg{
 		Header: dnsmessage.Header{ID: uint16(0x1234)},
