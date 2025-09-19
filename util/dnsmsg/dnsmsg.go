@@ -151,6 +151,7 @@ func NewQueryMsg(msg []byte) (*QueryMsg, error) {
 			return nil, &nestedError{"invalid additional header", err}
 		}
 		if h.Type != dnsmessage.TypeOPT {
+			p.SkipAdditional()
 			continue
 		}
 
@@ -161,6 +162,7 @@ func NewQueryMsg(msg []byte) (*QueryMsg, error) {
 
 		qmsg.OPT.Header = &h
 		qmsg.OPT.Options = r.Options
+		break
 	}
 
 	return qmsg, nil
