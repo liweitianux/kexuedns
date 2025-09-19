@@ -535,9 +535,14 @@ func (r *ResolverTCP) Query(ctx context.Context, msg []byte, _ bool) ([]byte, er
 			}
 			continue // retry
 		}
+		// Validate the length a bit.
+		rlength := binary.BigEndian.Uint16(lbuf)
+		if rlength == 0 {
+			log.Debugf("[%s] response length is zero", r.name)
+			break // length already read; cannot retry
+		}
 
 		// Read response content.
-		rlength := binary.BigEndian.Uint16(lbuf)
 		resp := make([]byte, rlength)
 		_, err = io.ReadFull(conn, resp)
 		if err != nil {
