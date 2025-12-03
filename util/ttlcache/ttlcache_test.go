@@ -161,6 +161,10 @@ func TestEviction2(t *testing.T) {
 	if n := evicted.Load(); int(n) != len(keys) {
 		t.Errorf(`evicted = %d; want %d`, n, len(keys))
 	}
+
+	if n := len(cache.items); n != 0 {
+		t.Errorf(`len(items) = %d; want 0`, n)
+	}
 }
 
 func TestEviction3(t *testing.T) {
