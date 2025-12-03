@@ -88,11 +88,14 @@ func (c *Cache) Add(key string, value any, ttl time.Duration) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
-	if _, exists := c.items[key]; exists {
+	item, exists := c.items[key]
+	if exists && !item.isExpired(time.Now().UnixNano()) {
 		return ErrKeyExists
 	}
 
-	item := itemPool.Get().(*cacheItem)
+	if item == nil {
+		item = itemPool.Get().(*cacheItem)
+	}
 	item.value = value
 	item.expireAt = c.getExpireAt(ttl)
 	c.items[key] = item

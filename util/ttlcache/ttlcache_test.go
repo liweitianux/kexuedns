@@ -70,6 +70,31 @@ func TestAdd1(t *testing.T) {
 	}
 }
 
+func TestAdd2(t *testing.T) {
+	// No eviction.
+	ttl := 10 * time.Millisecond
+	cache := New(ttl, 10*time.Second, nil)
+	defer cache.Close()
+
+	key := "hello"
+	val1, val2 := 1, 2
+
+	cache.Set(key, val1, ttl)
+
+	time.Sleep(ttl + time.Millisecond)
+	// Now expired
+	if v, ok := cache.Get(key); ok || v != nil {
+		t.Errorf(`Get(%q) = (%v, %t); want (nil, false)`, key, v, ok)
+	}
+	// Not cleaned, but should allow Add().
+	if err := cache.Add(key, val2, ttl); err != nil {
+		t.Errorf(`Add(%q) = %v; want nil`, key, err)
+	}
+	if v, ok := cache.Get(key); !ok || v != val2 {
+		t.Errorf(`Get(%q) = (%v, %t); want (%v, true)`, key, v, ok, val2)
+	}
+}
+
 func TestPopDelete(t *testing.T) {
 	// No expiration.
 	cache := New(10*time.Second, 0, nil)
