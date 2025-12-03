@@ -15,8 +15,8 @@ import (
 )
 
 const (
-	DefaultTTL = 0                // use default TTL of the TtlCache instance
-	NoTTL      = -1 * time.Second // no expiration
+	DefaultTTL = 0  // use default TTL of the TtlCache instance
+	NoTTL      = -1 // no expiration
 )
 
 const defaultInterval = 5 * time.Second // default cleanup interval
@@ -164,9 +164,9 @@ func (c *Cache) Delete(key string) {
 
 func (c *Cache) getExpireAt(ttl time.Duration) int64 {
 	if ttl < 0 {
-		return -1
+		return NoTTL
 	}
-	if ttl == 0 {
+	if ttl == DefaultTTL {
 		ttl = c.defaultTTL
 	}
 	return time.Now().Add(ttl).UnixNano()
