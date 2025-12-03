@@ -32,10 +32,10 @@ func TestAdd1(t *testing.T) {
 
 	val1, val2 := 1, 2
 	if err := cache.Add(key, val1, DefaultTTL); err != nil {
-		t.Errorf(`Set(%q) = %v; want nil`, key, err)
+		t.Errorf(`Add(%q) = %v; want nil`, key, err)
 	}
 	if err := cache.Add(key, val2, DefaultTTL); err != ErrKeyExists {
-		t.Errorf(`Set(%q) = %v; want ErrKeyExists`, key, err)
+		t.Errorf(`Add(%q) = %v; want ErrKeyExists`, key, err)
 	}
 
 	// Should get the old value.
@@ -50,7 +50,7 @@ func TestAdd1(t *testing.T) {
 	}
 
 	// Expire it.
-	time.Sleep(11 * time.Millisecond)
+	time.Sleep(ttl_11)
 	if v, ok := cache.Get(key); ok || v != nil {
 		t.Errorf(`Get(%q) = (%v, %t); want (nil, false)`, key, v, ok)
 	}
