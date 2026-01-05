@@ -302,7 +302,7 @@ func TestLongestPrefix2(t *testing.T) {
 }
 
 func TestLongestPrefix3(t *testing.T) {
-	rand.Seed(42)
+	initGenerator()
 
 	kvlist := make(
 		[]struct {
@@ -351,7 +351,7 @@ func TestLongestPrefix3(t *testing.T) {
 	for i := range items {
 		if i%2 == 0 {
 			// prefix-based
-			prefix := kvlist[rand.Intn(len(kvlist))].key
+			prefix := kvlist[generator.Intn(len(kvlist))].key
 			items[i].key = append(prefix, randomKey(1, 20)...)
 		} else {
 			// random-generated
@@ -378,7 +378,7 @@ func TestLongestPrefix3(t *testing.T) {
 	tree := &Tree{}
 
 	// Shuffle the kvlist to better test Insert().
-	rand.Shuffle(len(kvlist), func(i, j int) {
+	generator.Shuffle(len(kvlist), func(i, j int) {
 		kvlist[i], kvlist[j] = kvlist[j], kvlist[i]
 	})
 	for _, kv := range kvlist {
@@ -615,14 +615,14 @@ func BenchmarkLongestPrefix_LongKey_LongQuery(b *testing.B) {
 }
 
 func benchmarkLongestPrefix(b *testing.B, kmin, kmax, qmin, qmax int) {
-	rand.Seed(42)
+	initGenerator()
 
 	keys := generateKeys(10_000, kmin, kmax)
 	queries := make([][]byte, 1000)
 	for i := range queries {
 		if i%2 == 0 {
 			// prefix-based
-			prefix := keys[rand.Intn(len(keys))]
+			prefix := keys[generator.Intn(len(keys))]
 			queries[i] = append(prefix, randomKey(1, (qmin+qmax)/2)...)
 		} else {
 			// random-generated
@@ -664,12 +664,18 @@ func benchmarkLongestPrefix(b *testing.B, kmin, kmax, qmin, qmax int) {
 
 const randomCharset = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ._-="
 
+var generator *rand.Rand
+
+func initGenerator() {
+	generator = rand.New(rand.NewSource(42))
+}
+
 func randomKey(minLen, maxLen int) []byte {
-	length := rand.Intn(maxLen-minLen+1) + minLen
+	length := generator.Intn(maxLen-minLen+1) + minLen
 	key := make([]byte, length)
 	n := len(randomCharset)
 	for i := 0; i < length; i++ {
-		key[i] = randomCharset[rand.Intn(n)]
+		key[i] = randomCharset[generator.Intn(n)]
 	}
 	return key
 }
