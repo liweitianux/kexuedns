@@ -306,6 +306,7 @@ func (f *Forwarder) serveUDP(ctx context.Context, conn *net.UDPConn) {
 				}
 			}
 
+			//lint:ignore SA6002 using pointer adds no benefit here
 			f.udpPool.Put(buf)
 			f.wg.Done()
 		}(buf, n, addr)
