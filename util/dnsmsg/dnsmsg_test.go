@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 //
-// Copyright (c) 2025 Aaron LI
+// Copyright (c) 2025-2026 Aaron LI
 //
 // DNS message - tests
 //
@@ -262,6 +262,20 @@ func TestQueryMsg3(t *testing.T) {
 				t.Errorf(`[%d] len(OPT.Options) = %d; want %d`, i, l, oplen)
 			}
 		}
+	}
+}
+
+func TestQueryMsg4(t *testing.T) {
+	// Invalid packet and has a bogus RR body length.
+	msg := []byte{69, 103, 1, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 107, 112, 109, 103, 3, 99, 111, 109, 0, 0, 255, 0, 1, 0, 0, 41, 255, 255, 0, 0, 0, 0, 0, 0}
+
+	var m dnsmessage.Message
+	if err := m.Unpack(msg); err == nil {
+		t.Errorf(`dnsmessage.Message.Unpack() = ni; want error`)
+	}
+
+	if _, err := NewQueryMsg(msg); err == nil {
+		t.Errorf(`NewQueryMsg() = ni; want error`)
 	}
 }
 
