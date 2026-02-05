@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 //
-// Copyright (c) 2024-2025 Aaron LI
+// Copyright (c) 2024-2026 Aaron LI
 //
 // DNS message parsing and manipulations.
 //
@@ -151,7 +151,11 @@ func NewQueryMsg(msg []byte) (*QueryMsg, error) {
 			return nil, &nestedError{"invalid additional header", err}
 		}
 		if h.Type != dnsmessage.TypeOPT {
-			p.SkipAdditional()
+			if err := p.SkipAdditional(); err == dnsmessage.ErrSectionDone {
+				break
+			} else if err != nil {
+				return nil, &nestedError{"skip additional error", err}
+			}
 			continue
 		}
 
